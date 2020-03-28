@@ -1,13 +1,16 @@
 <script>
-	import {startConversation, joinExistingConversation} from './jitsi'
 	import {onMount} from 'svelte';
 	import {db} from './firebase'
+	import { fade } from 'svelte/transition';
+	// All those imports are needed, but don't show up as used because they're used in the svelte main body:
+	import {startConversation, joinExistingConversation, scheduleConversation, deletePersistency} from './jitsi'
 
 	export let name;
 	let newConvoName = '';
 	const COLLECTION = "Convos";
 	let convos = [];
 	let jitsiIsLoaded = false;
+	let hasJoinedconversation = false;
 
 	onMount(() => {
 		let script = document.createElement('script');
@@ -43,43 +46,63 @@
 				});
 	}
 	fetchExistingConvos();
+
+	function deleteConvo(convo) {
+		deletePersistency(convo);
+	}
+
+	function joinConversation(convo, existing = false) {
+		if (existing) {
+			joinExistingConversation(convo);
+		} else {
+			startConversation(convo);
+		}
+		hasJoinedconversation = true;
+	}
 </script>
 
-<main>
-	<h1>Hello {name}!</h1>
-	<p>So you want to have a conversation?</p>
+{#if !hasJoinedconversation}
+	<div id="main-option-panel" transition:fade>
+		<h1>Hello {name}!</h1>
+		<p>So you want to have a conversation?</p>
 
-	{#if jitsiIsLoaded}
-		Then why not go ahead and start one:
-
-		<input type="text" bind:value={newConvoName}>
-		<button on:click={() => startConversation(newConvoName)}>START</button>
-
-		{#if convos.length > 0}
-			<p>Or join one of those already happening:</p>
-			{#each convos as convo}
-				<p>
-					{convo.room} | {convo.participants} | created at <em>{convo.createdDate.toDate()}</em> | <button on:click={() => joinExistingConversation(convo)}>JOIN</button>
-				</p>
-			{/each}
+		{#if jitsiIsLoaded}
+			{#if convos.length > 0}
+				<p>Then why don't you join one of those:</p>
+				{#each convos as convo}
+					<p>
+						{convo.room} | {convo.participants} | <button on:click={() => joinConversation(convo, true)}>JOIN</button>
+						{#if convo.persisting }
+							<button on:click={() => deleteConvo(convo)}>Delete Conversation</button>
+						{/if}
+					</p>
+				{/each}
+				<p>Or start a new one: </p>
+			{:else}
+				<p>Oh. There aren't any existing conversations?</p>
+				<p>Then why not go ahead and start one! </p>
+			{/if}
+			<input type="text" bind:value={newConvoName}>
+			<button on:click={() => joinConversation(newConvoName, false)}>START</button>
+			<button on:click={() => scheduleConversation(newConvoName)}>Schedule for later</button>
 		{:else}
-			<p>Oh. There aren't any existing conversations?</p>
+			[Loading Video API... please reload this page if nothing changes in a while.]
 		{/if}
-	{:else}
-		[Loading Video API... please reload this page if nothing changes in a while.]
-	{/if}
+	</div>
+{/if}
 
 	<div id="meet">
+		<!-- Empty, will be used to display the video once someone joins a conversation -->
 	</div>
 
-</main>
-
 <style>
-	main {
+	#main-option-panel {
 		text-align: center;
 		padding: 1em;
-		max-width: 240px;
 		margin: 0 auto;
+		color: #333;
+		box-sizing: border-box;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 	}
 
 	h1 {
@@ -89,8 +112,13 @@
 		font-weight: 100;
 	}
 
+	#meet {
+		padding: -8px;
+		height: 100%;
+	}
+
 	@media (min-width: 640px) {
-		main {
+		body {
 			max-width: none;
 		}
 	}

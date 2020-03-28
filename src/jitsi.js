@@ -6,55 +6,59 @@ const second = 1000;
 let jitsiAPI;
 let convoRef;
 
+export function scheduleConversation(room) {
+    console.log("Scheduling " + room);
+    insertConvoIntoDatabase(room, 0, true);
+}
+
 export function startConversation(room) {
     console.log("Initiating " + room);
-    createAndJoinAPI(room);
-    insertConvoIntoDatabase(room);
+    insertConvoIntoDatabase(room)
+        .then(createAndJoinAPI(room));
+}
+
+export function joinExistingConversation(convo) {
+    convoRef = getConvoRef(convo.id);
+    console.log("Existing Convo.id: " + convo.id);
+    createAndJoinAPI(convo.room);
+    incrementParticipants(1);
+    console.log("Existing convoRef: " + convoRef.id);
 }
 
 function createAndJoinAPI(room) {
     let options = {
         roomName:room,
-        width:700,
-        height:700,
         parentNode:document.querySelector("#meet")
     };
     console.log("Joining jitsi room " + options.roomName);
     // creating this always creates a new conversation.
     jitsiAPI = new JitsiMeetExternalAPI("meet.jit.si", options);
     // jitsiAPI.executeCommand('displayName', name);
+    jitsiAPI.addListener('videoConferenceLeft', () => {
+        console.log("LeavingListener fired");
+        // console.log(this.event);
+        incrementParticipants(-1);
+        jitsiAPI = null;
+        convoRef = null;
+        window.location.href = "index.html";
+    });
 }
 
-function insertConvoIntoDatabase(newConvoName) {
+async function insertConvoIntoDatabase(newConvoName, initialParticipants = 1, persisting = false) {
     console.log("Inserting into database...");
-    db.collection(COLLECTION).add(
+    return db.collection(COLLECTION).add(
         {
             room: newConvoName,
-            participants: 1,
+            participants: initialParticipants,
             createdDate: firebase.firestore.FieldValue.serverTimestamp(),
-            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            lastUpdate: firebase.firestore.FieldValue.serverTimestamp(),
+            persisting: persisting
         })
         .then(ref => {
             convoRef = ref;
             console.log(`Got reference ${convoRef.id}`);
-            decrementWhenLeavingConvo();
         })
         .catch(err => console.log("Failed to insert new conversation or to retrieve its reference :-/ Message was: \n" + err));
-}
-
-function decrementWhenLeavingConvo() {
-    if (jitsiAPI && convoRef) {
-        jitsiAPI.addListener('videoConferenceLeft', () => {
-            console.log("LeavingListener fired");
-            // console.log(this.event);
-            incrementParticipants(convoRef, -1);
-            jitsiAPI = null;
-            convoRef = null;
-            document.getElementById("meet").innerHTML = "";
-        });
-    } else {
-        console.log("JitsiAPI or conversation reference isn't set yet");
-    }
 }
 
 function incrementParticipants(increment) {
@@ -65,20 +69,18 @@ function incrementParticipants(increment) {
     });
 }
 
-export function joinExistingConversation(convo) {
-    convoRef = getConvoRef(convo.id);
-    console.log("Existing Convo.id: " + convo.id);
-    createAndJoinAPI(convo.room);
-    incrementParticipants(1);
-    decrementWhenLeavingConvo();
-    console.log("Existing convoRef: " + convoRef.id);
-}
-
 function getConvoRef(convoId) {
     return db.collection(COLLECTION).doc(convoId);
 }
 
-const timeout = 10 * second;
+export function deletePersistency(convo) {
+    let ref = getConvoRef(convo.id);
+    ref.update({
+        persisting: false
+    }).then(() => removeEmptyRooms());
+}
+
+const timeout = 60 * second;
 function removeEmptyRooms() {
     // this is mainly needed to remove those calls that are empty.
     // We can't reliably call something when a user exits, because they might
@@ -103,7 +105,7 @@ function removeEmptyRooms() {
                             participants: numberOfParticipants,
                             lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                         });
-                    } else {
+                    } else if (!data.persisting) {
                         let now = Date.now()/1000;
                         console.log("Last update: " + data.lastUpdate.seconds);
                         console.log("Now: " + now);
