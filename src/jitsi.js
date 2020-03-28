@@ -4,7 +4,7 @@ const COLLECTION = "Convos";
 const second = 1000;
 
 let jitsiAPI;
-let convoRef;
+export let convoRef;
 
 export function scheduleConversation(room) {
     console.log("Scheduling " + room);
@@ -38,9 +38,9 @@ function createAndJoinAPI(room) {
         console.log("LeavingListener fired");
         // console.log(this.event);
         incrementParticipants(-1);
-        jitsiAPI = null;
+        // jitsiAPI = null; // Todo: re-enable this, only temporarily disabled to check whether I'm able to continue monitoring participants...
         convoRef = null;
-        window.location.href = "index.html";
+        document.getElementById("meet").innerHTML = "";
     });
 }
 
@@ -111,7 +111,7 @@ function removeEmptyRooms() {
                         console.log("Now: " + now);
                         let secondsSinceLastUpdate = now - data.lastUpdate.seconds;
                         console.log(`Seconds since last update: ${secondsSinceLastUpdate}`);
-                        if (secondsSinceLastUpdate > (timeout/1000)*2) {
+                        if (data.participants === 0 || secondsSinceLastUpdate > (timeout/1000)*2) {
                             console.log("Deleting " + data.room);
                             convo.ref.delete();
                         }
