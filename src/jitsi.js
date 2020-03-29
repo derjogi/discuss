@@ -97,18 +97,8 @@ function removeEmptyRooms() {
                 convos.forEach(convo => {
                     let data = convo.data();
                     Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-                    if (jitsiAPI && convoRef && convo.id === convoRef.id) {
-                        // Ongoing conversation, update the participants and timestamp, don't delete this one!
-                        let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
-                        console.log(`Number of participants: ${numberOfParticipants}`);
-                        convo.ref.update({
-                            participants: numberOfParticipants,
-                            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    } else if (!data.persisting) {
+                    if (!data.persisting) {
                         let now = Date.now()/1000;
-                        console.log("Last update: " + data.lastUpdate.seconds);
-                        console.log("Now: " + now);
                         let secondsSinceLastUpdate = now - data.lastUpdate.seconds;
                         console.log(`Seconds since last update: ${secondsSinceLastUpdate}`);
                         if (data.participants === 0 || secondsSinceLastUpdate > (timeout/1000)*2) {
@@ -121,3 +111,15 @@ function removeEmptyRooms() {
         });
 }
 setInterval(removeEmptyRooms, timeout);
+
+function updateHeartbeat() {
+    if (jitsiAPI && convoRef) {
+        let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
+        console.log(`Number of participants: ${numberOfParticipants}`);
+        convoRef.update({
+            participants: numberOfParticipants,
+            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+}
+setInterval(updateHeartbeat, 30 * second);
