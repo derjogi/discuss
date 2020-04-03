@@ -4,21 +4,22 @@
 	import {fade} from 'svelte/transition';
 	// All those imports are needed, but don't show up as used because they're used in the svelte main body:
 	import {
-		startConversation,
-		joinExistingConversation,
+		createRoom,
+		enterExistingRoom,
 		scheduleConversation,
-		deletePersistency,
-		convoRef
+		deleteRoom,
+		removeEmptyRooms, updateRoomProps,
+		ROOMS, USERS
 	} from './jitsi'
 
-	const initName = "er... you?";
-	let name = "";
+	const initName = " ... you?";
+	let userName = "";
 	let customName = false;
-	let newConvoName = '';
-	const COLLECTION = "Convos";
-	let convos = [];
+	let isAdmin = false;
+	let newRoomName = '';	// 'roomName' is reserved for the one room a user has joined in, so we need a different var for only 'creating' a room.
+	let rooms = [];
+	let roomName = '';
 	let jitsiIsLoaded = false;
-	let meetElement = null;
 
 	onMount(() => {
 		let meetJs = document.createElement('script');
@@ -34,52 +35,67 @@
 		// First up, fetch all ongoing conversations:
 		// Todo: how to make it load more n more on scroll?
 		// Todo 2: how to make it not wait for ages on load if there are many conversations?
-		db.collection(COLLECTION)
-				.onSnapshot(data => {
+		db.collection(ROOMS)
+				.onSnapshot(snap => {
 					let tempArray = [];
-					data.docs.forEach(doc => {
+					let isInRoom = false;
+					snap.docs.forEach(doc => {
 						let data = doc.data();
 						// we want to have the id as part of the data instead of on the document
 						// because we're throwing away the document reference.
-						data["id"] = doc.id;
-						tempArray.push(data)
-					});
-					console.log("Snapshot updated, found " + tempArray.length + " ongoing Conversations");
-					convos = tempArray;	// <-- assignment is important to trigger an update, 'push' won't do!
-					convos.forEach(convo => {
-						for (let [key, value] of Object.entries(convo)) {
+						data["id"] = doc.id;	// = room
+						let users = [];
+						doc.ref.collection(USERS).onSnapshot(usrs => {
+							usrs.docs.forEach(usr => {
+								users.push(usr.id);
+								if (usr.id === userName) {
+									isAdmin = usr.isAdmin;
+								}
+							});
+							removeEmptyRooms();
+						});
+						data["users"] = users;	// Todo: make sure that once 'users' gets reassigned it's not deleting the users inside data!
+						tempArray.push(data);
+						if (doc.id === roomName) {
+							currentRoom = data;
+							isInRoom = true;
+						}
+						for (let [key, value] of Object.entries(data)) {
 							console.log(`${key}: ${value}`);
 						}
 					});
-					if (!convoRef) hasJoinedConversation = false;
+					console.log("Snapshot updated, found " + tempArray.length + " rooms");
+					rooms = tempArray;	// <-- assignment is important to trigger an update in svelte, 'push' won't do!
+					hasJoinedConversation = isInRoom;
+					removeEmptyRooms();
 				});
 	}
 
 	fetchExistingConvos();
 
-	function deleteConvo(convo) {
-		deletePersistency(convo);
-	}
-
 	function updateName() {
-		customName = name !== initName;
+		customName = userName !== initName;
 	}
 
 	let nameWidth = 300;
-	$: if (name.length > 0) {
+	$: if (userName.length > 0) {
 		let invisibleNameElement = document.getElementById("invisibleName");
-		console.log(`Invisible name element: ${invisibleNameElement}`);
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
-		console.log("NameWidth: " + nameWidth);
 	}
 
+	let currentRoom = null;
+	function updateCapacity(newCapacity) {
+
+	}
 	let hasJoinedConversation = false;
-	function joinConversation(convo, existing = false) {
-		hasJoinedConversation = true;
+	function enterRoom(room, existing = false) {
+		hasJoinedConversation = true;	// a snapshot update will be triggered which updates hasJoinedConversation,
+		// but we'd want to set it here already just in case the snapshot update takes a long time.
+		roomName = room;
 		if (existing) {
-			joinExistingConversation(convo);
+			enterExistingRoom(room);
 		} else {
-			startConversation(convo);
+			createRoom(room);
 		}
 	}
 
@@ -89,7 +105,7 @@
 {#if !hasJoinedConversation}
 	<div id="main-option-panel" transition:fade>
 		<h1>Hello
-			<input type="text" name="titleName" bind:value={name} placeholder={initName} style="width:{nameWidth}px">
+			<input type="text" name="titleName" bind:value={userName} placeholder={initName} style="width:{nameWidth}px">
 		</h1>
 		<br>
 		<h2>So you want to have a conversation?</h2>
@@ -98,14 +114,15 @@
 			<div transition:fade>
 				<form on:submit|preventDefault={updateName}>
 					<label for="name">Let us know your name first:</label>
-					<input type="text" id="name" bind:value={name} placeholder="Enter your Name">
+					<input type="text" id="name" bind:value={userName} placeholder="Enter your Name">
 				</form>
 			</div>
 		{/if}
 
-		{#if customName}
 			{#if jitsiIsLoaded}
-				{#if convos.length > 0}
+				{#if rooms.length > 0}
+				<br/>
+				<br/>
 					<h3>Then why don't you join one of those:</h3>
 				<br/>
 				<br/>
@@ -122,18 +139,18 @@
 						</div>
 					</div>
 				<br/>
-					{#each convos as convo}
-						<div class="{convo.participants > 8 ? 'convo-full' : ''} row justify-content-center">
+					{#each rooms as room}
+						<div class="{room.users.length > room.capacity ? 'convo-full' : ''} row justify-content-center">
 							<div class="col-md-4">
-								{convo.room}
+								{room.id}
 							</div>
 							<div class="col-md-4">
-								{convo.participants}
+								{room.users}
 							</div>
 							<div class="col-md-4">
-								<button class="btn-join" on:click={() => joinConversation(convo, true)}>JOIN</button>
-								{#if convo.persisting }
-									<button class="btn-persist" on:click={() => deleteConvo(convo)}>Delete Conversation</button>
+								<button class="btn-join" on:click={() => enterRoom(room, true)}>JOIN</button>
+								{#if room.persisting }
+									<button class="btn-persist" on:click={() => deleteRoom(room.id)}>Delete Conversation</button>
 								{/if}
 							</div>
 						</div>
@@ -150,27 +167,33 @@
 				<!--  End convos -->
 				{/if}
 				<br/><br/>
-				<input type="text" bind:value={newConvoName}>
-				<button on:click={() => joinConversation(newConvoName, false)}>START</button>
-				<button on:click={() => scheduleConversation(newConvoName)}>Schedule for later</button>
+				<input type="text" bind:value={newRoomName}>
+				<button on:click={() => enterRoom(newRoomName)}>START</button>
+				<button on:click={() => scheduleConversation(newRoomName)}>Schedule for later</button>
 			{:else}
 				<br/><br/>
 				[Loading Video API... please reload this page if nothing changes in a while.]
 			<!-- End jitsiLoaded -->
 			{/if}
-			<!-- End customName	-->
-		{/if}
+
 		<!-- This should stay at the bottom of the page, it's not visible but still takes space / pushes other elements down. -->
 		<br/>
 		<div id="invisibleName">
-			<h1>{name?name:initName}</h1>
+			<h1>{userName?userName:initName}</h1>
 		</div>
 	</div>
 <!-- End JoinedConversation -->
+
 {/if}
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
-<div id="meet" bind:this={meetElement}>
-	<!-- Empty, will be used to display the video once someone joins a conversation -->
+
+<div id="ongoing-meeting">
+	<div id="meet" class={isAdmin?"height-90":"height-100"}>
+		<!-- Empty, will be used to display the video once someone joins a conversation -->
+	</div>
+	<div id="meeting-options" class="{isAdmin?'':'no-display'} row justify-content-center">
+		<button id="btn-room-full" on:click={() => updateCapacity(currentRoom.participants)}>{currentRoom && currentRoom.participants < currentRoom.capacity ? "Mark room as full" : "Allow new users"}</button>
+	</div>
 </div>
 
 
@@ -191,7 +214,7 @@
 		font-weight: 100;
 	}
 
-	input[type=text] {
+	input[name=titleName] {
 		border: none;
 		border-bottom: 2px solid #ff3e00;
 		color: #ff3e00;
@@ -207,13 +230,28 @@
 		color: #666666;
 	}
 
-	.convo-full>.btn-join {
+	.convo-full .btn-join {
+		visibility: hidden;
+	}
+
+	.no-display {
+		display: none;
+	}
+
+	.is-hidden {
 		visibility: hidden;
 	}
 
 	#meet {
 		padding: 0;
-		height: 100%;
+	}
+
+	.height-90 {
+		height: 90vh;
+	}
+
+	.height-100 {
+		height: 100vh;
 	}
 
 	#invisibleName {
