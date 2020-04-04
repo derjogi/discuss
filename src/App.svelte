@@ -52,6 +52,7 @@
 		// Todo 2: how to make it not wait for ages on load if there are many conversations?
 		db.collection(ROOMS)
 				.onSnapshot(snap => {
+					rooms = {};
 					snap.forEach(doc => {
 						let data = doc.data();
 						data["id"] = doc.id;	// the room is keyed under oomName already, but we're not storing that in currentRoom, so assign it as a value as well
@@ -106,8 +107,14 @@
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
 	}
 
+	let roomLocked = false;
 	function updateCapacity(newCapacity) {
-		updateRoomProps({capacity: newCapacity});
+		if (roomLocked) {
+			updateRoomProps({capacity: 99});
+		} else {
+			updateRoomProps({capacity: newCapacity});
+		}
+		roomLocked = !roomLocked;
 	}
 
 	let hasJoinedConversation = false;
@@ -141,7 +148,8 @@
 					<input type="text" id="name" bind:value={userName} placeholder="Enter your Name">
 				</form>
 			</div>
-		{:else}
+		{/if}
+		{#if userName.length > 0 && userName !== initName}
 			{#if jitsiIsLoaded}
 				{#if Object.keys(rooms).length > 0}
 				<br/>
