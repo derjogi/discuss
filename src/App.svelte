@@ -60,12 +60,15 @@
 						}
 						rooms[doc.id] = data;
 						updateUsers(doc);
-
-						console.log("Snapshot is updating room " + doc.id);
-						for (let [key, value] of Object.entries(data)) {
-							console.log(`${key}: ${value}`);
-						}
+						// console.log("Snapshot is updating room " + doc.id);
+						// for (let [key, value] of Object.entries(data)) {
+						// 	console.log(`${key}: ${value}`);
+						// }
 					});
+
+					console.log("Rooms at end of snapshot:");
+					console.log(`${Object.keys(rooms)}`);
+
 					// removeEmptyRooms();	// Todo: I don't think we need this here; we should update stuff when _users_ change instead, right?
 				});
 	}
@@ -76,16 +79,19 @@
 		room.ref.collection(USERS).onSnapshot(snap => {
 			let tempMap = {};
 			let isInRoom = false;
-
+			console.log(`Update user snapshot for ${room.id}`);
 			snap.forEach(doc => {
 				tempMap[doc.id] = doc.data();
+				console.log(`got user ${doc.id}, comparing with current user ${userName}`);
 				if (doc.id === userName) {
 					isAdmin = doc.data().isAdmin;
+					console.log(`${userName} is ${isAdmin?'':'not'} an admin`);
 					isInRoom = true;
 				}
 			});
 			rooms[room.id]["users"] = tempMap;	// Todo: does this trigger UI update? Should since it is an assignment...
 			hasJoinedConversation = isInRoom;
+			console.log(`hasJoinedConversation: ${hasJoinedConversation}`);
 			removeEmptyRooms();
 		});
 	}
@@ -100,18 +106,6 @@
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
 	}
 
-	// $: Object.values(rooms).forEach(room => {
-	// 		console.log("Performing room update " + room.id);
-	// 		for (let [name, data] of Object.entries(room.users)) {
-	// 			console.log("User name: " + name + ", data: " + Object.values(data));
-	// 			let secondsSinceLastUpdate = Date.now() / 1000 - data.lastUpdate.seconds;
-	// 			if (secondsSinceLastUpdate > 20) {
-	// 				console.log("Should remove user " + name);
-	// 			}
-	// 		}
-	// 	});
-
-	let currentRoom = "";
 	function updateCapacity(newCapacity) {
 		updateRoomProps({capacity: newCapacity});
 	}
@@ -120,7 +114,7 @@
 	function enterRoom(room, existing = false) {
 		hasJoinedConversation = true;	// a snapshot update will be triggered which updates hasJoinedConversation,
 		// but we'd want to set it here already just in case the snapshot update takes a long time.
-		roomName = room.id;
+		roomName = room;
 		if (existing) {
 			enterExistingRoom(room, userName);
 		} else {
@@ -129,6 +123,7 @@
 	}
 
 </script>
+
 
 <!-- JoinedConversation -->
 {#if !hasJoinedConversation}
@@ -146,8 +141,7 @@
 					<input type="text" id="name" bind:value={userName} placeholder="Enter your Name">
 				</form>
 			</div>
-		{/if}
-
+		{:else}
 			{#if jitsiIsLoaded}
 				{#if Object.keys(rooms).length > 0}
 				<br/>
@@ -177,7 +171,7 @@
 								{Object.keys(room.users).join(", ")} ({room.capacity})
 							</div>
 							<div class="col-md-4">
-								<button class="btn-join" on:click={() => enterRoom(room, true)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
+								<button class="btn-join" on:click={() => enterRoom(room.id, true)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
 								{#if room.persisting }
 									<button class="btn-persist" on:click={() => deleteRoom(room.id)}>Delete Conversation</button>
 								{/if}
@@ -204,7 +198,8 @@
 				[Loading Video API... please reload this page if nothing changes in a while.]
 			<!-- End jitsiLoaded -->
 			{/if}
-
+		<!-- End customName -->
+		{/if}
 		<!-- This should stay at the bottom of the page, it's not visible but still takes space / pushes other elements down. -->
 		<br/>
 		<div id="invisibleName">
@@ -215,7 +210,6 @@
 
 {/if}
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
-
 <div id="ongoing-meeting">
 	<div id="meet" class={isAdmin?"height-90":hasJoinedConversation?"height-100":""}>
 		<!-- Empty, will be used to display the video once someone joins a conversation -->

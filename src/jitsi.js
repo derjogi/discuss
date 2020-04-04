@@ -17,7 +17,7 @@ export function scheduleConversation(room, user, capacity = 99) {
     roomName = room;
     // The scheduling user should be an admin once he joins. Not implemented yet.
     // Security _might_ be an issue, since any other user with the same name could be an admin as well.
-    userName = user;    // Todo: does nothing yet
+    // userName = user;    // Todo: does nothing yet
     addRoom(true, capacity);
 }
 
@@ -30,17 +30,10 @@ export function createRoom(room, user, capacity = 99) {
         .then(createAndJoinAPI());
 }
 
-function generateRandomNameIfNecessary() {
-    if (!userName) {
-        userName = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    }
-}
-
-export function enterExistingRoom(roomDocument, user) {
-    console.log("Joining room " + roomDocument.id);
-    roomName = roomDocument.id;
+export function enterExistingRoom(room, user) {
+    console.log("Joining room " + room);
+    roomName = room;
     userName = user;
-    generateRandomNameIfNecessary();
     createAndJoinAPI();
     db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
         .then(users => addUser(users.size === 0));  // Admin if it's the first user
@@ -90,7 +83,6 @@ export function deleteRoom(roomName) {
  * @param isAdmin give this user 'admin rights' if true.
  */
 function addUser(isAdmin = false) {
-    generateRandomNameIfNecessary();
     console.log("Adding user: " + userName);
     db.collection(`${ROOMS}/${roomName}/${USERS}`).doc(`${userName}`).set({
         isAdmin: isAdmin,
