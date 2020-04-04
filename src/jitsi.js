@@ -1,8 +1,6 @@
 import firebase from "firebase/app";
 import {db} from './firebase';
 
-import x from 'randomstring';
-
 // Firestore Collections:
 export const ROOMS = "rooms";
 export const USERS = "users";
@@ -19,7 +17,7 @@ export function scheduleConversation(room, user, capacity = 99) {
     roomName = room;
     // The scheduling user should be an admin once he joins. Not implemented yet.
     // Security _might_ be an issue, since any other user with the same name could be an admin as well.
-    userName = user;
+    userName = user;    // Todo: does nothing yet
     addRoom(true, capacity);
 }
 
@@ -32,10 +30,17 @@ export function createRoom(room, user, capacity = 99) {
         .then(createAndJoinAPI());
 }
 
+function generateRandomNameIfNecessary() {
+    if (!userName) {
+        userName = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    }
+}
+
 export function enterExistingRoom(roomDocument, user) {
     console.log("Joining room " + roomDocument.id);
     roomName = roomDocument.id;
     userName = user;
+    generateRandomNameIfNecessary();
     createAndJoinAPI();
     db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
         .then(users => addUser(users.size === 0));  // Admin if it's the first user
@@ -48,17 +53,16 @@ function createAndJoinAPI(userName) {
         roomName:roomName,
         parentNode:document.querySelector("#meet")
     };
-    console.log("Joining jitsi room " + roomName);
+    console.log("Creating jitsi api for room " + roomName);
     // creating this always creates a new conversation.
     jitsiAPI = new JitsiMeetExternalAPI("meet.jit.si", options);
     jitsiAPI.executeCommands({
         displayName: [ `${userName}`],
-        // Todo: experimental
         toggleAudio: [],     // Toggles audio, will (hopefully?) result in 'off' by default
         toggleVideo: []
     });
     jitsiAPI.addListener('videoConferenceLeft', () => {
-        console.log("LeavingListener fired");
+        console.log("videoConferenceLeft fired for user " + userName);
         removeUser(userName);
         jitsiAPI.dispose();
         jitsiAPI = null;
@@ -67,7 +71,7 @@ function createAndJoinAPI(userName) {
 }
 
 async function addRoom(persisting = false, capacity = 99) {
-    console.log("Inserting into database...");
+    console.log(`Inserting ${roomName} into database`);
     return db.collection(ROOMS).doc(roomName).set(
         {
             persisting: persisting,
@@ -86,10 +90,7 @@ export function deleteRoom(roomName) {
  * @param isAdmin give this user 'admin rights' if true.
  */
 function addUser(isAdmin = false) {
-    if (!userName) {
-        userName = x.generate(12);
-        console.log(`Generated random username ${userName}`);
-    }
+    generateRandomNameIfNecessary();
     console.log("Adding user: " + userName);
     db.collection(`${ROOMS}/${roomName}/${USERS}`).doc(`${userName}`).set({
         isAdmin: isAdmin,
@@ -103,7 +104,9 @@ function addUser(isAdmin = false) {
  */
 function removeUser(userToRemove = userName) {
     console.log("Removing user: " + userToRemove);
-    db.doc(`${ROOMS}/${roomName}/${USERS}/${userToRemove}`).delete();
+    db.doc(`${ROOMS}/${roomName}/${USERS}/${userToRemove}`)
+        .delete()
+        .then(() => removeEmptyRooms());
 }
 
 export function updateRoomProps(props) {
@@ -127,31 +130,29 @@ export function removeEmptyRooms() {
                 console.log("Nothing in database");
             } else {
                 console.log(`${rooms.size} in database, checking expiry...`);
-                rooms.docs.forEach(room => {
+                rooms.forEach(room => {
                     let data = room.data();
                     Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-                    if (!data.persisting) {
-                        room.ref.collection(USERS).get().then(users => {
-                            let now = Date.now() / 1000;
-                            let numberDeleted = 0;
-                            users.docs.forEach(user => {
-                                let userData = user.data();
-                                Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-
-                                let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
-                                console.log(`Seconds since user ${user.id} was last updated: ${secondsSinceLastUpdate}`);
-                                if (secondsSinceLastUpdate > (timeout / 1000) * 2) {
-                                    console.log("Deleting " + user.id);
-                                    user.ref.delete();
-                                    numberDeleted++;
-                                }
-                            });
-                            if (users.empty || users.size - numberDeleted <= 0) {
-                                // delete the parent room. Yes, that's possible with firestore, it doesn't need to be empty or anything.
-                                room.ref.delete();
+                    room.ref.collection(USERS).get().then(users => {
+                        let now = Date.now() / 1000;
+                        let numberDeleted = 0;
+                        users.forEach(user => {
+                            let userData = user.data();
+                            console.log("Keys and values for " + user.id);
+                            Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
+                            let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
+                            console.log(`Seconds since user ${user.id} was last updated: ${secondsSinceLastUpdate}`);
+                            if (secondsSinceLastUpdate > 60) {
+                                console.log("Deleting " + user.id);
+                                user.ref.delete();
+                                numberDeleted++;
                             }
                         });
-                    }
+                        if (!data.persisting && (users.empty || users.size - numberDeleted <= 0)) {
+                            // delete the parent room. Yes, that's possible with firestore, it doesn't need to be empty or anything.
+                            room.ref.delete();
+                        }
+                    });
                 });
             }
         });
@@ -164,14 +165,12 @@ function updateHeartbeat() {
         console.log(`Number of participants: ${numberOfParticipants}`);
 
         db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
-            .then(users => {
-                if (users.size === numberOfParticipants) {
-                    console.log("All good, got same number of users.");
-                } else {
+            .then(users => {    // users = QuerySnapshot, different from DocReference or so
+                if (users.size !== numberOfParticipants) {
                     console.warn(`Oh. got ${users.size} users, but ${numberOfParticipants} participants :-/`);
                     users.forEach(user => console.log(user.id));
                 }
-                users.ref.doc(userName).update({
+                users.docs.find(doc => doc.id === userName).ref.update({
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
             });

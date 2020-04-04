@@ -17,7 +17,22 @@
 	let customName = false;
 	let isAdmin = false;
 	let newRoomName = '';	// 'roomName' is reserved for the one room a user has joined in, so we need a different var for only 'creating' a room.
-	let rooms = [];
+	let rooms = {};
+	// {roomX {
+	// 		  key1:value1,
+	// 	  	  key2:value2, ...
+	// 	  	  users: [
+	// 	  	 	userx {
+	// 	  	 		key1:value1,
+	// 	  	 		...
+	// 	  	 		},
+	// 			usery {},
+	//			...
+	// 	  	 	]
+	// 	  	 },
+	//  roomY {fields, users[usrX{values}]}
+	//  ...
+	//  }
 	let roomName = '';
 	let jitsiIsLoaded = false;
 
@@ -31,47 +46,49 @@
 		}
 	});
 
-	function fetchExistingConvos() {
+	function updateRooms() {
 		// First up, fetch all ongoing conversations:
 		// Todo: how to make it load more n more on scroll?
 		// Todo 2: how to make it not wait for ages on load if there are many conversations?
 		db.collection(ROOMS)
 				.onSnapshot(snap => {
-					let tempArray = [];
-					let isInRoom = false;
-					snap.docs.forEach(doc => {
+					snap.forEach(doc => {
 						let data = doc.data();
-						// we want to have the id as part of the data instead of on the document
-						// because we're throwing away the document reference.
-						data["id"] = doc.id;	// = room
-						let users = [];
-						doc.ref.collection(USERS).onSnapshot(usrs => {
-							usrs.docs.forEach(usr => {
-								users.push(usr.id);
-								if (usr.id === userName) {
-									isAdmin = usr.isAdmin;
-								}
-							});
-							removeEmptyRooms();
-						});
-						data["users"] = users;	// Todo: make sure that once 'users' gets reassigned it's not deleting the users inside data!
-						tempArray.push(data);
-						if (doc.id === roomName) {
-							currentRoom = data;
-							isInRoom = true;
+						data["id"] = doc.id;	// the room is keyed under oomName already, but we're not storing that in currentRoom, so assign it as a value as well
+						if (!data["users"]) {
+							data["users"] = [];	// so that we don't get 'undefined' errors. Users will be populated in the 'users' snapshot further down.
 						}
+						rooms[doc.id] = data;
+						updateUsers(doc);
+
+						console.log("Snapshot is updating room " + doc.id);
 						for (let [key, value] of Object.entries(data)) {
 							console.log(`${key}: ${value}`);
 						}
 					});
-					console.log("Snapshot updated, found " + tempArray.length + " rooms");
-					rooms = tempArray;	// <-- assignment is important to trigger an update in svelte, 'push' won't do!
-					hasJoinedConversation = isInRoom;
-					removeEmptyRooms();
+					// removeEmptyRooms();	// Todo: I don't think we need this here; we should update stuff when _users_ change instead, right?
 				});
 	}
 
-	fetchExistingConvos();
+	updateRooms();
+
+	function updateUsers(room) {
+		room.ref.collection(USERS).onSnapshot(snap => {
+			let tempMap = {};
+			let isInRoom = false;
+
+			snap.forEach(doc => {
+				tempMap[doc.id] = doc.data();
+				if (doc.id === userName) {
+					isAdmin = doc.data().isAdmin;
+					isInRoom = true;
+				}
+			});
+			rooms[room.id]["users"] = tempMap;	// Todo: does this trigger UI update? Should since it is an assignment...
+			hasJoinedConversation = isInRoom;
+			removeEmptyRooms();
+		});
+	}
 
 	function updateName() {
 		customName = userName !== initName;
@@ -83,19 +100,31 @@
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
 	}
 
-	let currentRoom = null;
-	function updateCapacity(newCapacity) {
+	// $: Object.values(rooms).forEach(room => {
+	// 		console.log("Performing room update " + room.id);
+	// 		for (let [name, data] of Object.entries(room.users)) {
+	// 			console.log("User name: " + name + ", data: " + Object.values(data));
+	// 			let secondsSinceLastUpdate = Date.now() / 1000 - data.lastUpdate.seconds;
+	// 			if (secondsSinceLastUpdate > 20) {
+	// 				console.log("Should remove user " + name);
+	// 			}
+	// 		}
+	// 	});
 
+	let currentRoom = "";
+	function updateCapacity(newCapacity) {
+		updateRoomProps({capacity: newCapacity});
 	}
+
 	let hasJoinedConversation = false;
 	function enterRoom(room, existing = false) {
 		hasJoinedConversation = true;	// a snapshot update will be triggered which updates hasJoinedConversation,
 		// but we'd want to set it here already just in case the snapshot update takes a long time.
-		roomName = room;
+		roomName = room.id;
 		if (existing) {
-			enterExistingRoom(room);
+			enterExistingRoom(room, userName);
 		} else {
-			createRoom(room);
+			createRoom(room, userName);
 		}
 	}
 
@@ -120,7 +149,7 @@
 		{/if}
 
 			{#if jitsiIsLoaded}
-				{#if rooms.length > 0}
+				{#if Object.keys(rooms).length > 0}
 				<br/>
 				<br/>
 					<h3>Then why don't you join one of those:</h3>
@@ -132,23 +161,23 @@
 							Room Name
 						</div>
 						<div class="col-md-4">
-							Participants
+							Participants (max)
 						</div>
 						<div class="col-md-4">
 							Actions
 						</div>
 					</div>
 				<br/>
-					{#each rooms as room}
-						<div class="{room.users.length > room.capacity ? 'convo-full' : ''} row justify-content-center">
+					{#each Object.values(rooms) as room}
+						<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
 							<div class="col-md-4">
 								{room.id}
 							</div>
 							<div class="col-md-4">
-								{room.users}
+								{Object.keys(room.users).join(", ")} ({room.capacity})
 							</div>
 							<div class="col-md-4">
-								<button class="btn-join" on:click={() => enterRoom(room, true)}>JOIN</button>
+								<button class="btn-join" on:click={() => enterRoom(room, true)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
 								{#if room.persisting }
 									<button class="btn-persist" on:click={() => deleteRoom(room.id)}>Delete Conversation</button>
 								{/if}
@@ -188,12 +217,17 @@
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
 
 <div id="ongoing-meeting">
-	<div id="meet" class={isAdmin?"height-90":"height-100"}>
+	<div id="meet" class={isAdmin?"height-90":hasJoinedConversation?"height-100":""}>
 		<!-- Empty, will be used to display the video once someone joins a conversation -->
 	</div>
-	<div id="meeting-options" class="{isAdmin?'':'no-display'} row justify-content-center">
-		<button id="btn-room-full" on:click={() => updateCapacity(currentRoom.participants)}>{currentRoom && currentRoom.participants < currentRoom.capacity ? "Mark room as full" : "Allow new users"}</button>
-	</div>
+	{#if rooms[roomName]}
+		<div id="meeting-options" class="{isAdmin?'':'no-display'} row justify-content-center">
+			<button id="btn-room-full" on:click={() => updateCapacity(Object.keys(rooms[roomName].users).length)}>
+				{rooms[roomName] && Object.keys(rooms[roomName].users).length < rooms[roomName].capacity
+				? "Mark room as full" : "Allow new users"}
+			</button>
+		</div>
+	{/if}
 </div>
 
 
