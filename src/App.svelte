@@ -35,6 +35,16 @@
 	//  }
 	let roomName = '';
 	let jitsiIsLoaded = false;
+	const USERNAME = "userName";
+
+	function loadUsernameFromCookie() {
+		let cookies = decodeURIComponent(document.cookie);
+		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
+		cookies = cookies.split("=");
+		if (cookies[0] === USERNAME) {
+			userName = cookies[1];
+		}
+	}
 
 	onMount(() => {
 		let meetJs = document.createElement('script');
@@ -43,7 +53,9 @@
 
 		meetJs.onload = function () {
 			jitsiIsLoaded = true;
-		}
+		};
+
+		loadUsernameFromCookie();
 	});
 
 	function updateRooms() {
@@ -98,13 +110,15 @@
 	}
 
 	function updateName() {
-		customName = userName !== initName;
+		customName = userName && userName !== initName;
 	}
+	updateName();
 
 	let nameWidth = 300;
 	$: if (userName.length > 0) {
 		let invisibleNameElement = document.getElementById("invisibleName");
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
+		document.cookie = USERNAME + "=" + userName;
 	}
 
 	let roomLocked = false;
@@ -128,6 +142,14 @@
 			createRoom(room, userName);
 		}
 	}
+
+
+	let roomNameIsValid;
+	$: {
+		roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+		console.log("Valid: " + roomNameIsValid);
+	}
+
 
 </script>
 
@@ -198,9 +220,19 @@
 				<!--  End convos -->
 				{/if}
 				<br/><br/>
-				<input type="text" bind:value={newRoomName}>
+				<input type="text" name=roomNameField
+					   bind:value={newRoomName}
+					   required
+					   pattern="^[^?&amp;:&quot;'%#]+$">
+
 				<button on:click={() => enterRoom(newRoomName)}>START</button>
 				<button on:click={() => scheduleConversation(newRoomName)}>Schedule for later</button>
+				{#if newRoomName.length > 1 && !roomNameIsValid}
+				<br/>
+					<span class="validation-hint">
+					INVALID - The room name can't contain any of these characters: ?, &amp;, :, ', &quot;, %, #
+				 	</span>
+				{/if}
 			{:else}
 				<br/><br/>
 				[Loading Video API... please reload this page if nothing changes in a while.]
@@ -260,6 +292,14 @@
 
 	input[name=titleName] {
 		padding: 0;
+	}
+
+	input[name=roomNameField]:valid {
+		border: 2px solid green;
+	}
+
+	input[name=roomNameField]:invalid {
+		border: 2px solid red;
 	}
 
 	.convo-full {
