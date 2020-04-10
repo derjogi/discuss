@@ -12,12 +12,12 @@ let roomId;
 export let userId;
 
 // These 3 methods are the only ones that a user can call to start, join or schedule a conversation:
-export function scheduleConversation(roomName, userName, capacity = 99) {
+export function scheduleConversation(roomName, userName, capacity = 6) {
     console.log("Scheduling " + roomName);
     addRoom(roomName, userName, true, capacity);
 }
 
-export function createRoom(roomName, userName, capacity = 99) {
+export function createRoom(roomName, userName, capacity = 6) {
     console.log("Initiating " + roomName);
     addRoom(roomName, userName, false, capacity)
         .then(roomRef => {
@@ -43,8 +43,9 @@ export function enterExistingRoom(roomID, userName) {
 
 // Other methods:
 function createAndJoinAPI(roomName, roomId, userName) {
+    let roomWithId = roomName + "_" + roomId;
     let options = {
-        roomName:roomName + "_" + roomId,
+        roomName: roomWithId,
         parentNode:document.querySelector("#meet")
     };
     console.log("Creating jitsi api for room " + roomName);
@@ -57,6 +58,7 @@ function createAndJoinAPI(roomName, roomId, userName) {
     });
     jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
     // jitsiAPI.addListener('participantLeft', participantLeavingListener())
+    history.pushState(null, null, `?roomName=${roomName}&roomId=${roomId}`);
 }
 
 

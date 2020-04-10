@@ -48,6 +48,16 @@
 	}
 	loadUsernameFromCookie();
 
+	function loadRoomFromUrl() {
+		let query = window.location.search;
+		let urlSearchParams = new URLSearchParams(query);
+		let roomId = urlSearchParams.get('roomId');
+		if (roomId) {
+			enterExistingRoom(roomId, userName);
+		}
+	}
+	loadRoomFromUrl();
+
 	function updateRooms() {
 		// First up, fetch all ongoing conversations:
 		// Todo: how to make it load more n more on scroll?
@@ -123,7 +133,7 @@
 	let nameWidth = 300;
 	$: if (userName.length > 0) {
 		let invisibleNameElement = document.getElementById("invisibleName");
-		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth : 300;
+		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth + 20 : 300;
 		document.cookie = USERNAME + "=" + userName;
 	}
 
@@ -273,12 +283,18 @@
 		margin-top: -18px;
 	}
 
-	#title h1 {	}
+	#title h1 {
+		font-weight: 800;
+	}
 
 	h1 {
 		color: #5996cd;
 		text-transform: uppercase;
 		font-size: 4em;
+		font-weight: 100;
+	}
+
+	h2 {
 		font-weight: 100;
 	}
 
@@ -306,11 +322,11 @@
 	}
 
 	.row.even {
-		background-color: #e4ecf5;
+		background-color: #edf5ff;
 	}
 
 	.row.odd {
-		background-color: #aed5f8;
+		background-color: #b8deff;
 	}
 
 	.convo-full {
@@ -323,11 +339,13 @@
 
 	.btn-join {
 		float:right;
+		background-color: grey;
+		color: white;
 	}
 
 	.btn-remove {
 		font-size:32px;
-		color: #036ece;
+		color: grey;
 		float:left;
 	}
 
@@ -358,10 +376,14 @@
 	#invisibleName {
 		visibility: hidden;
 		display: inline-block;
-		padding: 20px;	/* to make the input a bit wider */
+		font-weight: 900;
 	}
 
-	@media (min-width: 640px) {
+	#invisibleName h1{
+		font-weight: 800;
+	}
+
+	@media (min-width: 320px) {
 		body {
 			max-width: none;
 		}
