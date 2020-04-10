@@ -68,7 +68,7 @@
 					rooms = {};
 					snap.forEach(doc => {
 						let data = doc.data();
-						data["id"] = doc.id;	// the room is keyed under oomName already, but we're not storing that in currentRoom, so assign it as a value as well
+						data["id"] = doc.id;
 						if (!data["users"]) {
 							data["users"] = [];	// so that we don't get 'undefined' errors. Users will be populated in the 'users' snapshot further down.
 						}
@@ -84,7 +84,6 @@
 					console.log(`${Object.keys(rooms)}`);
 				});
 	}
-
 	updateRooms();
 
 	function updateUsers(room) {
@@ -92,24 +91,29 @@
 			let tempMap = {};
 			console.log(`Update user snapshot for ${room.id}`);
 			users.forEach(user => {
-				tempMap[user.id] = user.data();
-				console.log(`got user ${user.id}, comparing with current user ${userName}`);
-				if (user.id === userName) {
-					isAdmin = user.data().isAdmin;
+				let userData = user.data();
+				tempMap[user.id] = userData;
+				console.log(`got user ${userData.userName}, comparing with current user ${userName}`);
+				if (userData.userName === userName) {
+					isAdmin = userData.isAdmin;
 					console.log(`${userName} is ${isAdmin?'':'not '}an admin`);
 				}
 			});
 			rooms[room.id][USERS] = tempMap;
-			removeEmptyRooms();
+			// removeEmptyRooms();
 		});
 	}
 
+	let hasJoinedConversation;
 	$: {
 		let userInAnyRoom = false;
 		Object.values(rooms).forEach(room => {
-			let userNames = Object.keys(room[USERS]);
-			if (userNames.includes(userName)) {
-				console.log(`Found user ${userName} in ${room.id}`);
+			let usersData = Object.values(room[USERS]);
+			if (usersData.some(userData => {
+				console.log(`Checking ${userData.userName}`);
+				return userData.userName === userName
+			})) {
+				console.log(`Found user ${userName} in ${room.roomName}`);
 				userInAnyRoom = true;
 			}
 		});
@@ -137,19 +141,6 @@
 		}
 		roomLocked = !roomLocked;
 	}
-
-	let hasJoinedConversation = false;
-	function enterRoom(room, existing = false) {
-		hasJoinedConversation = true;	// a snapshot update will be triggered which updates hasJoinedConversation,
-		// but we'd want to set it here already just in case the snapshot update takes a long time.
-		roomName = room;
-		if (existing) {
-			enterExistingRoom(room, userName);
-		} else {
-			createRoom(room, userName);
-		}
-	}
-
 
 	let roomNameIsValid;
 	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
@@ -197,13 +188,13 @@
 					{#each Object.values(rooms) as room}
 						<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
 							<div class="col-md-4">
-								{room.id}
+								{room.roomName}
 							</div>
 							<div class="col-md-4">
 								{Object.keys(room.users).join(", ")} ({room.capacity})
 							</div>
 							<div class="col-md-4">
-								<button class="btn-join" on:click={() => enterRoom(room.id, true)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
+								<button class="btn-join" on:click={() => enterExistingRoom(room.id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
 								{#if room.persisting }
 									<button class="btn-persist" on:click={() => deleteRoom(room.id)}>Delete Conversation</button>
 								{/if}
@@ -227,7 +218,7 @@
 					   required
 					   pattern="^[^?&amp;:&quot;'%#]+$">
 
-				<button on:click={() => enterRoom(newRoomName)}>START</button>
+				<button on:click={() => createRoom(newRoomName, userName)}>START</button>
 				<button on:click={() => scheduleConversation(newRoomName)}>Schedule for later</button>
 				{#if newRoomName.length > 1 && !roomNameIsValid}
 				<br/>

@@ -8,40 +8,33 @@ export const USERS = "users";
 const second = 1000;
 
 let jitsiAPI;
-let roomName;
-let userName;
+let roomId;
+let userId;
 
 // These 3 methods are the only ones that a user can call to start, join or schedule a conversation:
 export function scheduleConversation(room, user, capacity = 99) {
     console.log("Scheduling " + room);
-    roomName = room;
-    // The scheduling user should be an admin once he joins. Not implemented yet.
-    // Security _might_ be an issue, since any other user with the same name could be an admin as well.
-    // userName = user;    // Todo: does nothing yet
-    addRoom(true, capacity);
+    addRoom(room, true, capacity);
 }
 
-export function createRoom(room, user, capacity = 99) {
-    console.log("Initiating " + room);
-    roomName = room;
-    userName = user;
-    addRoom(false, capacity)
-        .then(addUser(true))    // the first user/ the user who creates the room should always be an admin
-        .then(createAndJoinAPI());
+export function createRoom(roomName, userName, capacity = 99) {
+    console.log("Initiating " + roomName);
+    addRoom(roomName, false, capacity)
+        .then(addUser(userName, true))    // the first user/ the user who creates the room should always be an admin
+        .then(createAndJoinAPI(roomName, userName));
 }
 
-export function enterExistingRoom(room, user) {
-    console.log("Joining room " + room);
-    roomName = room;
-    userName = user;
-    createAndJoinAPI();
+export function enterExistingRoom(roomId, userName) {
+    let roomName = getRoomNameFromId(roomId);
+    console.log("Joining room " + roomName);
+    createAndJoinAPI(roomName, userName);
     db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
-        .then(users => addUser(users.size === 0));  // Admin if it's the first user
+        .then(users => addUser(userName, users.size === 0));  // Admin if it's the first user
 }
 
 // Other methods:
 
-function createAndJoinAPI(userName) {
+function createAndJoinAPI(roomName, userName) {
     let options = {
         roomName:roomName,
         parentNode:document.querySelector("#meet")
@@ -51,58 +44,77 @@ function createAndJoinAPI(userName) {
     jitsiAPI = new JitsiMeetExternalAPI("meet.jit.si", options);
     jitsiAPI.executeCommands({
         displayName: [ `${userName}`],
-        toggleAudio: [],     // Toggles audio, will (hopefully?) result in 'off' by default
+        toggleAudio: [],     // Toggles audio and video off when starting
         toggleVideo: []
     });
     jitsiAPI.addListener('videoConferenceLeft', () => {
         console.log("videoConferenceLeft fired for user " + userName);
-        removeUser(userName);
+        removeUser();
         jitsiAPI.dispose();
         jitsiAPI = null;
         document.getElementById("meet").innerHTML = "";
     });
 }
 
-async function addRoom(persisting = false, capacity = 99) {
+async function addRoom(roomName, persisting = false, capacity = 99) {
     console.log(`Inserting ${roomName} into database`);
-    return db.collection(ROOMS).doc(roomName).set(
+    db.collection(ROOMS).add(
         {
+            roomName: roomName,
             persisting: persisting,
             capacity: capacity,
             createdDate: firebase.firestore.FieldValue.serverTimestamp(),
         })
-        .catch(err => console.log("Failed to insert new room. Message was: \n" + err));
+        .then(roomRef => roomId = roomRef.id)
+        .catch(err => console.log(`Failed to insert new room ${roomName}. Message was: \n ${err}`));
 }
 
-export function deleteRoom(roomName) {
-    db.doc(`${ROOMS}/${roomName}`).delete();
+export function deleteRoom(roomId) {
+    db.doc(`${ROOMS}/${roomId}`).delete();
 }
 
 /**
  * Adds the current user to the room, can never be a different user.
+ * @param userName name of the user to add
  * @param isAdmin give this user 'admin rights' if true.
  */
-function addUser(isAdmin = false) {
+function addUser(userName, isAdmin = false) {
     console.log("Adding user: " + userName);
-    db.collection(`${ROOMS}/${roomName}/${USERS}`).doc(`${userName}`).set({
-        isAdmin: isAdmin,
-        lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    db.collection(`${ROOMS}/${roomId}/${USERS}`).add(
+        {
+            userName: userName,
+            isAdmin: isAdmin,
+            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        }).then(userRef => {
+            userId = userRef.id;
+            console.log(`Set userId for ${userName}: ${userId}`);
+        }).catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
+
 }
 
 /**
  * Remove the current user or another user from this room
  * @param userToRemove defaults to current user
  */
-function removeUser(userToRemove = userName) {
+function removeUser(userToRemove = userId) {
     console.log("Removing user: " + userToRemove);
-    db.doc(`${ROOMS}/${roomName}/${USERS}/${userToRemove}`)
+    db.doc(`${ROOMS}/${roomId}/${USERS}/${userToRemove}`)
         .delete()
         .then(() => removeEmptyRooms());
 }
 
+function getRoomNameFromId(roomId) {
+    return getDocProperty(`${ROOMS}/${roomId}`);
+}
+
+async function getDocProperty(docPath) {
+    return await db.doc(docPath).get().then(doc => {
+        return doc.data().roomName;
+    });
+}
+
 export function updateRoomProps(props) {
-    db.doc(`${ROOMS}/${roomName}`)
+    db.doc(`${ROOMS}/${roomId}`)
         .update(props)
         .then(() => removeEmptyRooms());
 }
@@ -121,21 +133,21 @@ export function removeEmptyRooms() {
             if (rooms.empty) {
                 console.log("Nothing in database");
             } else {
-                console.log(`${rooms.size} in database, checking expiry...`);
+                // console.log(`${rooms.size} in database, checking expiry...`);
                 rooms.forEach(room => {
                     let data = room.data();
-                    Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
+                    // Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
                     room.ref.collection(USERS).get().then(users => {
                         let now = Date.now() / 1000;
                         let numberDeleted = 0;
                         users.forEach(user => {
                             let userData = user.data();
-                            console.log("Keys and values for " + user.id);
-                            Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
+                            // console.log("Keys and values for " + userData.userName);
+                            // Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
                             let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
-                            console.log(`Seconds since user ${user.id} was last updated: ${secondsSinceLastUpdate}`);
+                            console.log(`Seconds since user ${userData.userName} was last updated: ${secondsSinceLastUpdate}`);
                             if (secondsSinceLastUpdate > 60) {
-                                console.log("Deleting " + user.id);
+                                console.log("Deleting " + userData.userName);
                                 user.ref.delete();
                                 numberDeleted++;
                             }
@@ -156,13 +168,13 @@ function updateHeartbeat() {
         let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
         console.log(`Number of participants: ${numberOfParticipants}`);
 
-        db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
+        db.collection(`${ROOMS}/${roomId}/${USERS}`).get()
             .then(users => {    // users = QuerySnapshot, different from DocReference or so
                 if (users.size !== numberOfParticipants) {
                     console.warn(`Oh. got ${users.size} users, but ${numberOfParticipants} participants :-/`);
-                    users.forEach(user => console.log(user.id));
+                    users.forEach(user => console.log(user.data().userName));
                 }
-                users.docs.find(doc => doc.id === userName).ref.update({
+                users.docs.find(doc => doc.id === userId).ref.update({
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
             });
