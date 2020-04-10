@@ -13,6 +13,8 @@
 	} from './jitsi'
 
 	const initName = " ... you?";
+	const USERNAME = "userName";
+
 	let userName = "";
 	let customName = false;
 	let isAdmin = false;
@@ -35,8 +37,6 @@
 	//  roomId {fields, users[usrX{values}]}
 	//  ...
 	//  }
-	let jitsiIsLoaded = false;
-	const USERNAME = "userName";
 
 	function loadUsernameFromCookie() {
 		let cookies = decodeURIComponent(document.cookie);
@@ -46,18 +46,7 @@
 			userName = cookies[1];
 		}
 	}
-
-	onMount(() => {
-		let meetJs = document.createElement('script');
-		meetJs.src = 'https://meet.jit.si/external_api.js';
-		document.head.append(meetJs);
-
-		meetJs.onload = function () {
-			jitsiIsLoaded = true;
-		};
-
-		loadUsernameFromCookie();
-	});
+	loadUsernameFromCookie();
 
 	function updateRooms() {
 		// First up, fetch all ongoing conversations:
@@ -160,7 +149,7 @@
 			<input type="text" name="titleName" bind:value={userName} placeholder={initName} style="width:{nameWidth}px">
 		</h1>
 		<br>
-		<h2>So you want to have a conversation?</h2>
+		<h2>Do you want to join a discussion?</h2>
 
 		{#if !customName}
 			<div transition:fade>
@@ -171,71 +160,67 @@
 			</div>
 		{/if}
 		{#if userName.length > 0 && userName !== initName}
-			{#if jitsiIsLoaded}
-				{#if Object.keys(rooms).length > 0}
-				<br/>
-				<br/>
-					<h3>Then why don't you join one of those:</h3>
-				<br/>
-				<br/>
-				<div class="container">
-					<div class="row justify-content-center">
-						<div class="col-md-4">
-							Room Name
+			{#if Object.keys(rooms).length > 0}
+			<br/>
+			<br/>
+				<h3>You can join one of those:</h3>
+			<br/>
+			<br/>
+			<div class="container">
+				<div class="conversation-header-row row justify-content-center">
+					<div class="col-4">
+						Room Name
+					</div>
+					<div class="col-4">
+						Participants (#)
+					</div>
+					<div class="col-4">
+						Actions
+					</div>
+				</div>
+			<br/>
+				{#each Object.values(rooms) as room}
+					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
+						<div class="col-4">
+							{room.roomName}
 						</div>
-						<div class="col-md-4">
-							Participants (max)
+						<div class="col-4">
+							{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({Object.keys(room.users).length})
 						</div>
-						<div class="col-md-4">
-							Actions
+						<div class="col-2">
+							<button class="btn-join" on:click={() => enterExistingRoom(room.id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
+						</div>
+						<div class="col-2">
+							{#if room.persisting && (Object.keys(room.users).length === 0)}
+								<i class="fa fa-close btn-remove" on:click={() => deleteRoom(room.id)}></i>
+							{/if}
 						</div>
 					</div>
-				<br/>
-					{#each Object.values(rooms) as room}
-						<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
-							<div class="col-md-4">
-								{room.roomName}
-							</div>
-							<div class="col-md-4">
-								{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({room.capacity})
-							</div>
-							<div class="col-md-4">
-								<button class="btn-join" on:click={() => enterExistingRoom(room.id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
-								{#if room.persisting }
-									<button class="btn-persist" on:click={() => deleteRoom(room.id)}>Delete Conversation</button>
-								{/if}
-							</div>
-						</div>
-					{/each}
-				</div>
-				<br/><br/>
-					<h3>Or start a new one: </h3>
-				{:else}
-				<br/>
-					<h3>Oh. There aren't any existing conversations?</h3>
-					<br/>
-					<h3>Then why not go ahead and start one! </h3>
-
-				<!--  End convos -->
-				{/if}
-				<br/><br/>
-				<input type="text" name=roomNameField
-					   bind:value={newRoomName}
-					   required
-					   pattern="^[^?&amp;:&quot;'%#]+$">
-
-				<button on:click={() => createRoom(newRoomName, userName)}>START</button>
-				<button on:click={() => scheduleConversation(newRoomName, userName)}>Schedule for later</button>
-				{#if newRoomName.length > 1 && !roomNameIsValid}
-				<br/>
-					<span class="validation-hint">
-					INVALID - The room name can't contain any of these characters: ?, &amp;, :, ', &quot;, %, #
-				 	</span>
-				{/if}
+				{/each}
+			</div>
+			<br/><br/>
+				<h3>Or start a new one: </h3>
 			{:else}
-				<br/><br/>
-				[Loading Video API... please reload this page if nothing changes in a while.]
-			<!-- End jitsiLoaded -->
+			<br/>
+				<h3>Oh. There aren't any existing conversations?</h3>
+				<br/>
+				<h3>Then why not go ahead and start one! </h3>
+
+			<!--  End convos -->
+			{/if}
+			<br/><br/>
+			<input type="text" name=roomNameField
+				   bind:value={newRoomName}
+				   required
+				   pattern="^[^?&amp;:&quot;'%#]+$">
+
+			<button disabled={!roomNameIsValid} on:click={() => createRoom(newRoomName, userName)}>START</button>
+			<button disabled={!roomNameIsValid} on:click={() => scheduleConversation(newRoomName, userName)}>Schedule for later</button>
+			{#if newRoomName.length > 1 && !roomNameIsValid}
+			<br/>
+				<span class="validation-hint">
+				INVALID - The room name can't contain any of these characters: ?, &amp;, :, ', &quot;, %, #
+				</span>
 			{/if}
 		<!-- End customName -->
 		{/if}
@@ -302,12 +287,26 @@
 		border: 2px solid red;
 	}
 
+	.conversation-header-row {
+		font-weight: bold;
+	}
+
 	.convo-full {
 		color: #666666;
 	}
 
 	.convo-full .btn-join {
 		visibility: hidden;
+	}
+
+	.btn-join {
+		float:right;
+	}
+
+	.btn-remove {
+		font-size:32px;
+		color:red;
+		float:left;
 	}
 
 	.no-display {
@@ -320,6 +319,10 @@
 
 	#meet {
 		padding: 0;
+	}
+
+	#meeting-options {
+		padding: 10px;
 	}
 
 	.height-90 {
