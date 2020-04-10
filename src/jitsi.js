@@ -9,31 +9,39 @@ const second = 1000;
 
 let jitsiAPI;
 let roomId;
-let userId;
+export let userId;
 
 // These 3 methods are the only ones that a user can call to start, join or schedule a conversation:
-export function scheduleConversation(room, user, capacity = 99) {
-    console.log("Scheduling " + room);
-    addRoom(room, true, capacity);
+export function scheduleConversation(roomName, userName, capacity = 99) {
+    console.log("Scheduling " + roomName);
+    addRoom(roomName, userName, true, capacity);
 }
 
 export function createRoom(roomName, userName, capacity = 99) {
     console.log("Initiating " + roomName);
-    addRoom(roomName, false, capacity)
-        .then(addUser(userName, true))    // the first user/ the user who creates the room should always be an admin
-        .then(createAndJoinAPI(roomName, userName));
+    addRoom(roomName, userName, false, capacity)
+        .then(roomRef => {
+            console.log(`Room id: ${roomId}, roomRef: ${roomRef.id}`);
+            addUser(userName, true)
+        })    // the first user/ the user who creates the room should always be an admin
+        .then(() => createAndJoinAPI(roomName, userName));
 }
 
-export function enterExistingRoom(roomId, userName) {
-    let roomName = getRoomNameFromId(roomId);
-    console.log("Joining room " + roomName);
-    createAndJoinAPI(roomName, userName);
-    db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
-        .then(users => addUser(userName, users.size === 0));  // Admin if it's the first user
+export function enterExistingRoom(roomID, userName) {
+    roomId = roomID;
+    getRoomNameFromId(roomId).then(roomName => {
+        console.log("Joining room " + roomName);
+        createAndJoinAPI(roomName, userName);
+        db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
+            .then(users => {
+                console.log(`Adding user ${userName} to a room with ${users.size} other users`);
+                addUser(userName, users.size === 0)
+            });
+            // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
+    });
 }
 
 // Other methods:
-
 function createAndJoinAPI(roomName, userName) {
     let options = {
         roomName:roomName,
@@ -47,26 +55,34 @@ function createAndJoinAPI(roomName, userName) {
         toggleAudio: [],     // Toggles audio and video off when starting
         toggleVideo: []
     });
-    jitsiAPI.addListener('videoConferenceLeft', () => {
+    jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
+    // jitsiAPI.addListener('participantLeft', participantLeavingListener())
+}
+
+
+function participantLeavingListener(userName) {
+    return () => {
         console.log("videoConferenceLeft fired for user " + userName);
         removeUser();
         jitsiAPI.dispose();
         jitsiAPI = null;
         document.getElementById("meet").innerHTML = "";
-    });
+    };
 }
 
-async function addRoom(roomName, persisting = false, capacity = 99) {
+async function addRoom(roomName, createdBy, persisting = false, capacity = 99) {
     console.log(`Inserting ${roomName} into database`);
-    db.collection(ROOMS).add(
+    let roomRef = await db.collection(ROOMS).add(
         {
             roomName: roomName,
             persisting: persisting,
             capacity: capacity,
+            createdBy: createdBy,
             createdDate: firebase.firestore.FieldValue.serverTimestamp(),
-        })
-        .then(roomRef => roomId = roomRef.id)
-        .catch(err => console.log(`Failed to insert new room ${roomName}. Message was: \n ${err}`));
+        });
+    roomId = roomRef.id;
+    console.log(`Set roomId for ${roomName}: ${roomId}`);
+    return roomRef;
 }
 
 export function deleteRoom(roomId) {
@@ -79,7 +95,7 @@ export function deleteRoom(roomId) {
  * @param isAdmin give this user 'admin rights' if true.
  */
 function addUser(userName, isAdmin = false) {
-    console.log("Adding user: " + userName);
+    console.log(`Adding user: ${userName} to roomId ${roomId}`);
     db.collection(`${ROOMS}/${roomId}/${USERS}`).add(
         {
             userName: userName,
@@ -89,7 +105,6 @@ function addUser(userName, isAdmin = false) {
             userId = userRef.id;
             console.log(`Set userId for ${userName}: ${userId}`);
         }).catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
-
 }
 
 /**
@@ -103,14 +118,12 @@ function removeUser(userToRemove = userId) {
         .then(() => removeEmptyRooms());
 }
 
-function getRoomNameFromId(roomId) {
+async function getRoomNameFromId(roomId) {
     return getDocProperty(`${ROOMS}/${roomId}`);
 }
 
 async function getDocProperty(docPath) {
-    return await db.doc(docPath).get().then(doc => {
-        return doc.data().roomName;
-    });
+    return db.doc(docPath).get().then(doc => doc.data().roomName);
 }
 
 export function updateRoomProps(props) {
@@ -133,15 +146,16 @@ export function removeEmptyRooms() {
             if (rooms.empty) {
                 console.log("Nothing in database");
             } else {
-                // console.log(`${rooms.size} in database, checking expiry...`);
+                console.log(`${rooms.size} in database, checking expiry...`);
                 rooms.forEach(room => {
-                    let data = room.data();
+                    let roomData = room.data();
                     // Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
                     room.ref.collection(USERS).get().then(users => {
                         let now = Date.now() / 1000;
                         let numberDeleted = 0;
                         users.forEach(user => {
                             let userData = user.data();
+                            console.log("Type of userData: " + typeof userData);
                             // console.log("Keys and values for " + userData.userName);
                             // Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
                             let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
@@ -152,8 +166,12 @@ export function removeEmptyRooms() {
                                 numberDeleted++;
                             }
                         });
-                        if (!data.persisting && (users.empty || users.size - numberDeleted <= 0)) {
+                        if (!roomData.persisting
+                            && now - roomData.createdDate.seconds > 10
+                            && (users.empty || users.size - numberDeleted <= 0))
+                        {
                             // delete the parent room. Yes, that's possible with firestore, it doesn't need to be empty or anything.
+                            console.log("Deleting room " + roomData.roomName);
                             room.ref.delete();
                         }
                     });

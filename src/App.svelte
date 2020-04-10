@@ -9,7 +9,7 @@
 		scheduleConversation,
 		deleteRoom,
 		removeEmptyRooms, updateRoomProps,
-		ROOMS, USERS
+		ROOMS, USERS, userId
 	} from './jitsi'
 
 	const initName = " ... you?";
@@ -19,11 +19,12 @@
 	let roomName = '';		// the room name a user has actually joined
 	let newRoomName = '';	// name when 'creating' a room, which the user might not actually join (e.g. scheduled room).
 	let rooms = {};
-	// {roomX {
-	// 		  key1:value1,
-	// 	  	  key2:value2, ...
+	// {roomId {
+	//        roomName: name,
+	// 		  keyX:valueX,
+	// 	  	  keyY:valueY, ...
 	// 	  	  users: [
-	// 	  	 	userx {
+	// 	  	 	userId {
 	// 	  	 		key1:value1,
 	// 	  	 		...
 	// 	  	 		},
@@ -31,7 +32,7 @@
 	//			...
 	// 	  	 	]
 	// 	  	 },
-	//  roomY {fields, users[usrX{values}]}
+	//  roomId {fields, users[usrX{values}]}
 	//  ...
 	//  }
 	let jitsiIsLoaded = false;
@@ -69,8 +70,8 @@
 					snap.forEach(doc => {
 						let data = doc.data();
 						data["id"] = doc.id;
-						if (!data["users"]) {
-							data["users"] = [];	// so that we don't get 'undefined' errors. Users will be populated in the 'users' snapshot further down.
+						if (!data[USERS]) {
+							data[USERS] = [];	// so that we don't get 'undefined' errors. Users will be populated in the 'users' snapshot further down.
 						}
 						rooms[doc.id] = data;
 						updateUsers(doc);
@@ -80,8 +81,7 @@
 						// }
 					});
 
-					console.log("Rooms at end of snapshot:");
-					console.log(`${Object.keys(rooms)}`);
+					console.log("Finished updating room snapshot");
 				});
 	}
 	updateRooms();
@@ -89,35 +89,41 @@
 	function updateUsers(room) {
 		room.ref.collection(USERS).onSnapshot(users => {
 			let tempMap = {};
-			console.log(`Update user snapshot for ${room.id}`);
+			console.log(`Update user snapshot for room "${room.data().roomName}"`);
 			users.forEach(user => {
 				let userData = user.data();
+				userData["id"] = user.id;
 				tempMap[user.id] = userData;
-				console.log(`got user ${userData.userName}, comparing with current user ${userName}`);
-				if (userData.userName === userName) {
+				console.log(`got user ${userData.userName}, comparing with current user's ${userName} id`);
+				if (user.id === userId) {
 					isAdmin = userData.isAdmin;
 					console.log(`${userName} is ${isAdmin?'':'not '}an admin`);
 				}
 			});
 			rooms[room.id][USERS] = tempMap;
-			// removeEmptyRooms();
+			removeEmptyRooms();
+			console.log(`End updating user snapshot`);
 		});
 	}
 
 	let hasJoinedConversation;
+	let currentRoom;
 	$: {
 		let userInAnyRoom = false;
+		let currentRoomOrNull = null;
 		Object.values(rooms).forEach(room => {
 			let usersData = Object.values(room[USERS]);
 			if (usersData.some(userData => {
 				console.log(`Checking ${userData.userName}`);
-				return userData.userName === userName
+				return userData.id === userId;
 			})) {
 				console.log(`Found user ${userName} in ${room.roomName}`);
 				userInAnyRoom = true;
+				currentRoomOrNull = room;
 			}
 		});
 		hasJoinedConversation = userInAnyRoom;
+		currentRoom = currentRoomOrNull;
 	}
 
 	function updateName() {
@@ -191,7 +197,7 @@
 								{room.roomName}
 							</div>
 							<div class="col-md-4">
-								{Object.keys(room.users).join(", ")} ({room.capacity})
+								{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({room.capacity})
 							</div>
 							<div class="col-md-4">
 								<button class="btn-join" on:click={() => enterExistingRoom(room.id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
@@ -219,7 +225,7 @@
 					   pattern="^[^?&amp;:&quot;'%#]+$">
 
 				<button on:click={() => createRoom(newRoomName, userName)}>START</button>
-				<button on:click={() => scheduleConversation(newRoomName)}>Schedule for later</button>
+				<button on:click={() => scheduleConversation(newRoomName, userName)}>Schedule for later</button>
 				{#if newRoomName.length > 1 && !roomNameIsValid}
 				<br/>
 					<span class="validation-hint">
@@ -242,15 +248,16 @@
 <!-- End JoinedConversation -->
 
 {/if}
+
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
 <div id="ongoing-meeting">
 	<div id="meet" class={isAdmin?"height-90":hasJoinedConversation?"height-100":""}>
 		<!-- Empty, will be used to display the video once someone joins a conversation -->
 	</div>
-	{#if rooms[roomName]}
+	{#if currentRoom}
 		<div id="meeting-options" class="{isAdmin?'':'no-display'} row justify-content-center">
-			<button id="btn-room-full" on:click={() => updateCapacity(Object.keys(rooms[roomName].users).length)}>
-				{rooms[roomName] && Object.keys(rooms[roomName].users).length < rooms[roomName].capacity
+			<button id="btn-room-full" on:click={() => updateCapacity(Object.keys(currentRoom.users).length)}>
+				{currentRoom && Object.keys(currentRoom.users).length < currentRoom.capacity
 				? "Mark room as full" : "Allow new users"}
 			</button>
 		</div>
