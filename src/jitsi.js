@@ -24,14 +24,14 @@ export function createRoom(roomName, userName, capacity = 99) {
             console.log(`Room id: ${roomId}, roomRef: ${roomRef.id}`);
             addUser(userName, true)
         })    // the first user/ the user who creates the room should always be an admin
-        .then(() => createAndJoinAPI(roomName, userName));
+        .then(() => createAndJoinAPI(roomName, roomId, userName));
 }
 
 export function enterExistingRoom(roomID, userName) {
     roomId = roomID;
     getRoomNameFromId(roomId).then(roomName => {
         console.log(`Joining room ${roomName} with id ${roomId}`);
-        createAndJoinAPI(roomName, userName);
+        createAndJoinAPI(roomName, roomId, userName);
         db.collection(`${ROOMS}/${roomId}/${USERS}`).get()
             .then(users => {
                 console.log(`Adding user ${userName} to a room with ${users.size} other users`);
@@ -42,9 +42,9 @@ export function enterExistingRoom(roomID, userName) {
 }
 
 // Other methods:
-function createAndJoinAPI(roomName, userName) {
+function createAndJoinAPI(roomName, roomId, userName) {
     let options = {
-        roomName:roomName,
+        roomName:roomName + "_" + roomId,
         parentNode:document.querySelector("#meet")
     };
     console.log("Creating jitsi api for room " + roomName);
