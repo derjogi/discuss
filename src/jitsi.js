@@ -52,9 +52,10 @@ function createAndJoinAPI(roomName, roomId, userName) {
     // creating this always creates a new conversation.
     jitsiAPI = new JitsiMeetExternalAPI("meet.jit.si", options);
     jitsiAPI.executeCommands({
-        displayName: [ `${userName}`],
-        toggleAudio: [],     // Toggles audio and video off when starting
-        toggleVideo: []
+        displayName: [ `${userName}`]
+        // ,
+        // toggleAudio: [],     // Toggles audio and video off when starting
+        // toggleVideo: []
     });
     jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
     // jitsiAPI.addListener('participantLeft', participantLeavingListener())
