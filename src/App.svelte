@@ -82,8 +82,6 @@
 
 					console.log("Rooms at end of snapshot:");
 					console.log(`${Object.keys(rooms)}`);
-
-					// removeEmptyRooms();	// Todo: I don't think we need this here; we should update stuff when _users_ change instead, right?
 				});
 	}
 
