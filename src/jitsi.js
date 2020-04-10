@@ -30,9 +30,9 @@ export function createRoom(roomName, userName, capacity = 99) {
 export function enterExistingRoom(roomID, userName) {
     roomId = roomID;
     getRoomNameFromId(roomId).then(roomName => {
-        console.log("Joining room " + roomName);
+        console.log(`Joining room ${roomName} with id ${roomId}`);
         createAndJoinAPI(roomName, userName);
-        db.collection(`${ROOMS}/${roomName}/${USERS}`).get()
+        db.collection(`${ROOMS}/${roomId}/${USERS}`).get()
             .then(users => {
                 console.log(`Adding user ${userName} to a room with ${users.size} other users`);
                 addUser(userName, users.size === 0)
