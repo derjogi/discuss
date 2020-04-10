@@ -168,29 +168,29 @@
 			<br/>
 			<div class="container">
 				<div class="conversation-header-row row justify-content-center">
-					<div class="col-4">
+					<div class="col-md-3 col-4">
 						Room Name
 					</div>
-					<div class="col-4">
+					<div class="col-md-3 col-4">
 						Participants (#)
 					</div>
-					<div class="col-4">
+					<div class="col-md-2 col-4">
 						Actions
 					</div>
 				</div>
 			<br/>
 				{#each Object.values(rooms) as room}
 					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
-						<div class="col-4">
+						<div class="col-md-3 col-4">
 							{room.roomName}
 						</div>
-						<div class="col-4">
+						<div class="col-md-3 col-4">
 							{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({Object.keys(room.users).length})
 						</div>
-						<div class="col-2">
+						<div class="col-md-1 col-2">
 							<button class="btn-join" on:click={() => enterExistingRoom(room.id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
 						</div>
-						<div class="col-2">
+						<div class="col-md-1 col-2">
 							{#if room.persisting && (Object.keys(room.users).length === 0)}
 								<i class="fa fa-close btn-remove" on:click={() => deleteRoom(room.id)}></i>
 							{/if}
@@ -214,8 +214,7 @@
 				   required
 				   pattern="^[^?&amp;:&quot;'%#]+$">
 
-			<button disabled={!roomNameIsValid} on:click={() => createRoom(newRoomName, userName)}>START</button>
-			<button disabled={!roomNameIsValid} on:click={() => scheduleConversation(newRoomName, userName)}>Schedule for later</button>
+			<button disabled={!roomNameIsValid} on:click={() => scheduleConversation(newRoomName, userName)}>Create Room</button>
 			{#if newRoomName.length > 1 && !roomNameIsValid}
 			<br/>
 				<span class="validation-hint">
@@ -230,8 +229,7 @@
 			<h1>{userName?userName:initName}</h1>
 		</div>
 	</div>
-<!-- End JoinedConversation -->
-
+<!-- End !JoinedConversation -->
 {/if}
 
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
