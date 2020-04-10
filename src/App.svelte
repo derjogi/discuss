@@ -16,7 +16,8 @@
 	let userName = "";
 	let customName = false;
 	let isAdmin = false;
-	let newRoomName = '';	// 'roomName' is reserved for the one room a user has joined in, so we need a different var for only 'creating' a room.
+	let roomName = '';		// the room name a user has actually joined
+	let newRoomName = '';	// name when 'creating' a room, which the user might not actually join (e.g. scheduled room).
 	let rooms = {};
 	// {roomX {
 	// 		  key1:value1,
@@ -33,7 +34,6 @@
 	//  roomY {fields, users[usrX{values}]}
 	//  ...
 	//  }
-	let roomName = '';
 	let jitsiIsLoaded = false;
 	const USERNAME = "userName";
 
@@ -64,6 +64,7 @@
 		// Todo 2: how to make it not wait for ages on load if there are many conversations?
 		db.collection(ROOMS)
 				.onSnapshot(snap => {
+					console.log("Updating room snapshot");
 					rooms = {};
 					snap.forEach(doc => {
 						let data = doc.data();
@@ -89,24 +90,32 @@
 	updateRooms();
 
 	function updateUsers(room) {
-		room.ref.collection(USERS).onSnapshot(snap => {
+		room.ref.collection(USERS).onSnapshot(users => {
 			let tempMap = {};
-			let isInRoom = false;
 			console.log(`Update user snapshot for ${room.id}`);
-			snap.forEach(doc => {
-				tempMap[doc.id] = doc.data();
-				console.log(`got user ${doc.id}, comparing with current user ${userName}`);
-				if (doc.id === userName) {
-					isAdmin = doc.data().isAdmin;
-					console.log(`${userName} is ${isAdmin?'':'not'} an admin`);
-					isInRoom = true;
+			users.forEach(user => {
+				tempMap[user.id] = user.data();
+				console.log(`got user ${user.id}, comparing with current user ${userName}`);
+				if (user.id === userName) {
+					isAdmin = user.data().isAdmin;
+					console.log(`${userName} is ${isAdmin?'':'not '}an admin`);
 				}
 			});
-			rooms[room.id]["users"] = tempMap;	// Todo: does this trigger UI update? Should since it is an assignment...
-			hasJoinedConversation = isInRoom;
-			console.log(`hasJoinedConversation: ${hasJoinedConversation}`);
+			rooms[room.id][USERS] = tempMap;
 			removeEmptyRooms();
 		});
+	}
+
+	$: {
+		let userInAnyRoom = false;
+		Object.values(rooms).forEach(room => {
+			let userNames = Object.keys(room[USERS]);
+			if (userNames.includes(userName)) {
+				console.log(`Found user ${userName} in ${room.id}`);
+				userInAnyRoom = true;
+			}
+		});
+		hasJoinedConversation = userInAnyRoom;
 	}
 
 	function updateName() {
@@ -145,12 +154,7 @@
 
 
 	let roomNameIsValid;
-	$: {
-		roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
-		console.log("Valid: " + roomNameIsValid);
-	}
-
-
+	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
 </script>
 
 
