@@ -145,9 +145,14 @@
 <!-- JoinedConversation -->
 {#if !hasJoinedConversation}
 	<div id="main-option-panel" transition:fade>
-		<h1>Hello
-			<input type="text" name="titleName" bind:value={userName} placeholder={initName} style="width:{nameWidth}px">
-		</h1>
+		<div id="bannerImage">
+			<img src="./images/group-discussion.png" alt="" >
+		</div>
+		<div id="title">
+			<h1>Hello
+				<input type="text" name="titleName" bind:value={userName} placeholder={initName} style="width:{nameWidth}px">
+			</h1>
+		</div>
 		<br>
 		<h2>Do you want to join a discussion?</h2>
 
@@ -167,7 +172,7 @@
 			<br/>
 			<br/>
 			<div class="container">
-				<div class="conversation-header-row row justify-content-center">
+				<div class="conversation-header-row even row justify-content-center">
 					<div class="col-md-3 col-4">
 						Room Name
 					</div>
@@ -178,9 +183,8 @@
 						Actions
 					</div>
 				</div>
-			<br/>
-				{#each Object.values(rooms) as room}
-					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} row justify-content-center">
+				{#each Object.values(rooms) as room, i}
+					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} {i % 2 === 0 ? 'odd' : 'even'} row justify-content-center">
 						<div class="col-md-3 col-4">
 							{room.roomName}
 						</div>
@@ -258,8 +262,21 @@
 		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 	}
 
+	#bannerImage {
+		float: right;
+		width: 100%;
+	}
+
+	#bannerImage img {
+		width: 60%;
+		max-width: 700px;
+		margin-top: -18px;
+	}
+
+	#title h1 {	}
+
 	h1 {
-		color: #ff3e00;
+		color: #5996cd;
 		text-transform: uppercase;
 		font-size: 4em;
 		font-weight: 100;
@@ -267,26 +284,33 @@
 
 	input[name=titleName] {
 		border: none;
-		border-bottom: 2px solid #ff3e00;
-		color: #ff3e00;
+		border-bottom: 2px solid #1e7cd0;
+		color: #5996cd;
 		font-weight: inherit;	/* to make it same as other font */
 		text-transform: uppercase;
-	}
-
-	input[name=titleName] {
+		background: #ffffff00;
 		padding: 0;
 	}
 
 	input[name=roomNameField]:valid {
-		border: 2px solid green;
+		border: 2px solid #5996cd;
 	}
 
 	input[name=roomNameField]:invalid {
-		border: 2px solid red;
+		border: 2px solid #5996cd;
 	}
 
 	.conversation-header-row {
 		font-weight: bold;
+		padding-bottom: 6px;
+	}
+
+	.row.even {
+		background-color: #e4ecf5;
+	}
+
+	.row.odd {
+		background-color: #aed5f8;
 	}
 
 	.convo-full {
@@ -303,7 +327,7 @@
 
 	.btn-remove {
 		font-size:32px;
-		color:red;
+		color: #036ece;
 		float:left;
 	}
 
