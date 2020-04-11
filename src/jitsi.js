@@ -62,14 +62,27 @@ function createAndJoinAPI(roomName, roomId, userName) {
     history.pushState(null, null, `?roomName=${roomName}&roomId=${roomId}`);
 }
 
+function participantLeft() {
+    removeUser();
+    jitsiAPI.dispose();
+    jitsiAPI = null;
+    document.getElementById("meet").innerHTML = "";
+    history.pushState(null, null, null);
+}
+
+window.onpopstate = function (event) {
+    console.log(`OnPopState fired: ` + JSON.stringify(event.state));
+    console.log("Document location: " + document.location);
+    console.log("Search: " + document.location.search);
+    if (!document.location.search) {
+        participantLeft();
+    }
+}
 
 function participantLeavingListener(userName) {
     return () => {
         console.log("videoConferenceLeft fired for user " + userName);
-        removeUser();
-        jitsiAPI.dispose();
-        jitsiAPI = null;
-        document.getElementById("meet").innerHTML = "";
+        participantLeft();
     };
 }
 
@@ -88,8 +101,9 @@ async function addRoom(roomName, createdBy, persisting = false, capacity = 99) {
     return roomRef;
 }
 
-export function deleteRoom(roomId) {
-    db.doc(`${ROOMS}/${roomId}`).delete();
+export function deleteRoom(roomId, roomName) {
+    let ok = confirm(`You are about to delete room ${roomName}.\nDo you want to proceed?`);
+    if (ok) db.doc(`${ROOMS}/${roomId}`).delete();
 }
 
 /**
@@ -161,12 +175,14 @@ export function removeEmptyRooms() {
                             console.log("Type of userData: " + typeof userData);
                             // console.log("Keys and values for " + userData.userName);
                             // Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-                            let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
-                            console.log(`Seconds since user ${userData.userName} was last updated: ${secondsSinceLastUpdate}`);
-                            if (secondsSinceLastUpdate > 60) {
-                                console.log("Deleting " + userData.userName);
-                                user.ref.delete();
-                                numberDeleted++;
+                            if (userData.lastUpdate) {  // this is sometimes null, I suspect because it is accessed as it is being updated?
+                                let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
+                                console.log(`Seconds since user ${userData.userName} was last updated: ${secondsSinceLastUpdate}`);
+                                if (secondsSinceLastUpdate > 60) {
+                                    console.log("Deleting " + userData.userName);
+                                    user.ref.delete();
+                                    numberDeleted++;
+                                }
                             }
                         });
                         if (!roomData.persisting

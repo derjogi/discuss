@@ -46,16 +46,22 @@
 			userName = cookies[1];
 		}
 	}
-	loadUsernameFromCookie();
 
 	function loadRoomFromUrl() {
 		let query = window.location.search;
 		let urlSearchParams = new URLSearchParams(query);
 		let roomId = urlSearchParams.get('roomId');
 		if (roomId) {
+			if (!userName) {
+				userName = prompt("Please enter your name for this chat");
+				if (userName == null) {
+					userName = "Anonymous";
+				}
+			}
 			enterExistingRoom(roomId, userName);
 		}
 	}
+	loadUsernameFromCookie();
 	loadRoomFromUrl();
 
 	function updateRooms() {
@@ -206,7 +212,7 @@
 						</div>
 						<div class="col-md-1 col-2">
 							{#if room.persisting && (Object.keys(room.users).length === 0)}
-								<i class="fa fa-close btn-remove" on:click={() => deleteRoom(room.id)}></i>
+								<i class="fa fa-close btn-remove" on:click={() => deleteRoom(room.id, room.roomName)}></i>
 							{/if}
 						</div>
 					</div>
@@ -374,13 +380,16 @@
 	}
 
 	#invisibleName {
-		visibility: hidden;
+		/*visibility: hidden;*/
 		display: inline-block;
 		font-weight: 900;
+		text-transform: uppercase;
+		white-space: pre;
 	}
 
 	#invisibleName h1{
-		font-weight: 800;
+		font-weight: 900;
+		margin: 20px;
 	}
 
 	@media (min-width: 320px) {
