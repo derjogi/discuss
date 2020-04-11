@@ -380,7 +380,7 @@
 	}
 
 	#invisibleName {
-		/*visibility: hidden;*/
+		visibility: hidden;
 		display: inline-block;
 		font-weight: 900;
 		text-transform: uppercase;
