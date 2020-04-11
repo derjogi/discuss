@@ -1,8 +1,8 @@
-# KONVERSATIONS
+# DICUSSions
 
 This is an early attempt at managing multiple jitsi conversations/rooms.
 
-a first demo is online at https://konverse.now.sh/ . You can use that, but please don't spam it with thousands of calls as I'm on the free database tier and would like to stay there for a bit ;-)
+a first demo is online at https://discuss.now.sh/ . You can use that, but please don't spam it with thousands of calls as I'm on the free database tier and would like to stay there for a bit ;-)
 
 Also, feel free to contribute & improve, or fork your own. 
 (If you fork it you'll need to set up a firestore db and provide the credentials).
