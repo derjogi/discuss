@@ -6,28 +6,42 @@ export const ROOMS = "rooms";
 export const USERS = "users";
 
 const second = 1000;
+let capacity = 6;
 
 let jitsiAPI;
 let roomId;
 export let userId;
 
-// These 3 methods are the only ones that a user can call to start, join or schedule a conversation:
-export function scheduleConversation(roomName, userName, capacity = 6) {
+// Init stuff that gets all the groups and users. Will have to see how good this scales and might have sub-collections when things grow.
+// The actual method populating this is at the very end of this js file.
+export let rooms = {};
+// {roomId: {
+//        roomName: name,
+// 		  keyX:valueX,
+// 	  	  keyY:valueY, ...
+//        users: not updated here, see separate 'users' map
+// 	  	 },
+//  roomId {fields, users[usrX{values}]}
+//  ...
+//  }
+
+export let users = {};
+// { roomId: [
+// 	  	 	userX: {
+// 	  	 		key1:value1,
+// 	  	 		...
+// 	  	 		},
+// 			userY: {},
+//			...
+// 	  	 	]
+// }
+
+export function createRoom(roomName, userName, capacity= capacity) {
     console.log("Scheduling " + roomName);
     addRoom(roomName, userName, true, capacity);
 }
 
-export function createRoom(roomName, userName, capacity = 6) {
-    console.log("Initiating " + roomName);
-    addRoom(roomName, userName, false, capacity)
-        .then(roomRef => {
-            console.log(`Room id: ${roomId}, roomRef: ${roomRef.id}`);
-            addUser(userName, true)
-        })    // the first user/ the user who creates the room should always be an admin
-        .then(() => createAndJoinAPI(roomName, roomId, userName));
-}
-
-export function enterExistingRoom(roomID, userName) {
+export function enterRoom(roomID, userName) {
     roomId = roomID;
     getRoomNameFromId(roomId).then(roomName => {
         console.log(`Joining room ${roomName} with id ${roomId}`);
@@ -37,7 +51,7 @@ export function enterExistingRoom(roomID, userName) {
                 console.log(`Adding user ${userName} to a room with ${users.size} other users`);
                 addUser(userName, users.size === 0)
             });
-            // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
+        // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
     });
 }
 
@@ -119,9 +133,9 @@ function addUser(userName, isAdmin = false) {
             isAdmin: isAdmin,
             lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
         }).then(userRef => {
-            userId = userRef.id;
-            console.log(`Set userId for ${userName}: ${userId}`);
-        }).catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
+        userId = userRef.id;
+        console.log(`Set userId for ${userName}: ${userId}`);
+    }).catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
 }
 
 /**
@@ -218,3 +232,23 @@ function updateHeartbeat() {
     }
 }
 setInterval(updateHeartbeat, 30 * second);
+
+
+
+// This function attaches a listener to the collection which will keep the variable updated whenever there's a change in the database.
+function update(whatToUpdate, collectionName) {
+    // First up, fetch all ongoing conversations:
+    db.collection(collectionName)
+        .onSnapshot(snap => {
+            let tempData = {};
+            snap.forEach(doc => {
+                let data = doc.data();
+                data["id"] = doc.id;
+                tempData[doc.id] = data;
+            });
+            console.log("Finished updating snapshot");
+            whatToUpdate = tempData;
+        });
+}
+update(rooms, ROOMS);
+update(users, USERS);

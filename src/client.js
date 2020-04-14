@@ -1,4 +1,5 @@
-import {firebaseConfig} from "./firebaseConfig";
+import * as sapper from '@sapper/app';
 
-let app = firebase.initializeApp(firebaseConfig);
-window.db = app.firestore();
+sapper.start({
+	target: document.querySelector('#sapper')
+});
