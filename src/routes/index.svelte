@@ -1,9 +1,10 @@
 <script>
 	import {fade} from 'svelte/transition';
+	import {onMount} from 'svelte'
 	import {stores} from '@sapper/app';
 	import Header from "../components/Header.svelte";
 	import JitsiGroup from "../components/JitsiGroup.svelte";
-	import {loadUsernameFromCookie} from "../jitsi";
+	import {loadUsernameFromCookie, rooms, setUserName} from "../jitsi";
 
 	const {preloading, page, session} = stores();
 
@@ -11,11 +12,17 @@
 	const initName = " ... you?";
 	const USERNAME = "userName";
 
-	userName = loadUsernameFromCookie();
+
+	onMount(async () => {
+		userName = loadUsernameFromCookie();
+	})
 
 	// If a user enters a direct link to a room the user should go there directly:
+	// Todo: not sure how this will actually interact with having sub-pages ([roomId].svelte)
 	function loadRoomFromUrl() {
-		let roomId = page.params.roomId;
+		let params = page.params;
+		if (!params) return;
+		let roomId = params.roomId;
 		if (roomId) {
 			if (!userName) {
 				userName = prompt("Please enter your name for this chat");
@@ -42,6 +49,10 @@
 		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth + 20 : 300;
 		document.cookie = USERNAME + "=" + userName;
 	}
+
+	// updates the userName in jitsi.js whenever it gets updated. Only so that we can access it in submodules.
+	// I found that way easier than to use stores, not sure yet whether there's a downside.
+	$: setUserName(userName);
 </script>
 
 <!-- Optimally we'd have this in a separate <Header> component. But it's not trivial because we're setting the userName in it and there's some cross-action going on with other  -->

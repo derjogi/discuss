@@ -1,13 +1,6 @@
 <script>
-    import {updateRoomProps} from "../../jitsi";
+    import {updateRoomProps, userName} from "../../jitsi";
     import {onMount} from 'svelte'
-    import { stores } from '@sapper/app';
-    import { getContext } from 'svelte'
-
-    const _userNameFromStore = getContext('userName');
-    export let userName;
-    $: userName = $_userNameFromStore;
-    console.log("Username from store: " + userName);
 
     const { preloading, page, session } = stores();
     export let roomId = page.params.roomId;

@@ -1,34 +1,26 @@
-<script>
-    import {db} from "../firebase";
-    import {createRoom, deleteRoom, enterRoom, userId, USERS} from "../jitsi";
-    import Header from "./Header.svelte";
-
-    let hasJoinedConversation;
-    let currentRoom;
-    $: {
-        let userInAnyRoom = false;
-        let currentRoomOrNull = null;
-        Object.values(rooms).forEach(room => {
-            let usersData = Object.values(room[USERS]);
-
-            if (usersData.some(userData => {
-                console.log(`Checking ${userData.userName}`);
-                return userData.id === userId;
-            })) {
-                console.log(`Found user if for ${userName} in ${room.roomName}`);
-                userInAnyRoom = true;
-                currentRoomOrNull = room;
-            }
-        });
-        hasJoinedConversation = userInAnyRoom;
-        currentRoom = currentRoomOrNull;
-    }
-
-    let roomNameIsValid;
-    $: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+<script context="module">
+export async function preload(page, session) {
+}
 </script>
 
-<Header {customName}/>
+<script>
+    import {createRoom, deleteRoom, updateRooms, rooms} from "../jitsi";
+
+    export let userName;    // Passed in from parent component
+    updateRooms();
+
+    let newRoomName = "";
+    let roomNameIsValid;
+    $: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+
+    $: rooms
+
+</script>
+
+what's in a room?
+{#each Object.keys(rooms) as room}
+    A room: {room}
+{/each}
 
 {#if Object.keys(rooms).length > 0}
     <br/>

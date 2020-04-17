@@ -1,7 +1,6 @@
 import firebase from "firebase/app";
 import {db} from './firebase';
 import {goto} from "@sapper/app";
-import {Room} from "./room";
 
 // Firestore Collections:
 // Main collection, contains rooms and users as subcollection
@@ -9,32 +8,23 @@ export const ROOMS = "rooms";
 // a subcollection in each individual room containing the users, but NOT their heartbeats!
 export const USERS = "users";
 export const USER_HEARTBEATS = "user_heartbeats"
-
+const USERNAME = "userName";
 
 const second = 1000;
-let capacity = 6;
+let default_capacity = 6;
 
 let jitsiAPI;
 let roomId;
 export let userId;
+export let userName;
 
-// {roomId: {
-//        roomName: name,
-// 		  keyX:valueX,
-// 	  	  keyY:valueY, ...
-//        users: {
-//          userX: {
-// 	  	 		key1:value1,
-// 	  	 		...
-// 	  	 		},
-// 			userY: {},
-//			...
-// 	  	 	}
-// 	  	 },
-//  roomId {fields, users[usrX{values}]}
-//  ...
-//  }
-export let rooms = {};
+export function setUserName(user) {
+    userName = user;
+}
+
+// Assigned when we start looking for rooms and users.
+// Should be detached again (called) once it's not necessary any more.
+let unsubscribeRoomUpdates;
 
 // Todo s:
 //  * Need those tables:
@@ -58,7 +48,7 @@ export let rooms = {};
 //  * users.roomId
 
 
-export function createRoom(roomName, userName, capacity= capacity) {
+export function createRoom(roomName, userName, capacity= default_capacity) {
     console.log("Scheduling " + roomName);
     // Optimally we'd pass a userId instead of userName as createdBy, but we don't have an ID at this stage.
     // Maybe the ID should be created on the client side, not on the server...
@@ -77,6 +67,9 @@ export function enterRoom(roomID, userName) {
     console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
     addUser(userName, usersInRoom === 0);
     // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
+    if (unsubscribeRoomUpdates) {
+        unsubscribeRoomUpdates();  // this detaches the listener; we don't need it while we're actually in the room. (Only needed for the table)
+    }
 }
 
 // Other methods:
@@ -109,17 +102,18 @@ function participantLeft() {
     // history.pushState(null, null, null);
 }
 
-// Called when going back in the browser
-window.onpopstate = function (event) {
-    console.log(`OnPopState fired: ` + JSON.stringify(event.state));
-    console.log("Document location: " + document.location);
-    console.log("Search: " + document.location.search);
-    if (!document.location.search) {
-        // if the user navigates back to a page that doesn't have any parameters then make sure that user's also leaving the conversation properly.
-        participantLeft();
-        // Todo: optimally if there are other parameters those should be parsed and the user should join another room. Maybe it's doing that already though?
-    }
-}
+//  Todo: may not work with sapper/SSR because window isn't accessible on the server. Put it into an onMount or so?
+// // Called when going back in the browser
+// window.onpopstate = function (event) {
+//     console.log(`OnPopState fired: ` + JSON.stringify(event.state));
+//     console.log("Document location: " + document.location);
+//     console.log("Search: " + document.location.search);
+//     if (!document.location.search) {
+//         // if the user navigates back to a page that doesn't have any parameters then make sure that user's also leaving the conversation properly.
+//         participantLeft();
+//         // Todo: optimally if there are other parameters those should be parsed and the user should join another room. Maybe it's doing that already though?
+//     }
+// }
 
 function participantLeavingListener(userName) {
     return () => {
@@ -129,7 +123,7 @@ function participantLeavingListener(userName) {
     };
 }
 
-async function addRoom(roomName, createdBy, persisting = false, capacity = 99) {
+async function addRoom(roomName, createdBy, persisting = false, capacity = default_capacity) {
     console.log(`Inserting ${roomName} into database`);
     let roomRef = await db.collection(ROOMS).add(
         {
@@ -241,17 +235,48 @@ function updateHeartbeat() {
     }
 }
 
+// {roomId: {
+//        roomName: name,
+// 		  keyX:valueX,
+// 	  	  keyY:valueY, ...
+//        users: {
+//          userX: {
+// 	  	 		key1:value1,
+// 	  	 		...
+// 	  	 		},
+// 			userY: {},
+//			...
+// 	  	 	}
+// 	  	 },
+//  roomId {fields, users[usrX{values}]}
+//  ...
+//  }
+export let rooms = {};
+
 // This function attaches a listener to the collection which will keep the variable updated whenever there's a change in the database.
-function updateRooms() {
+export function updateRooms() {
     // First up, fetch all ongoing conversations:
-    db.collection(ROOMS)
+    unsubscribeRoomUpdates = db.collection("rooms")
         .onSnapshot(snap => {
             console.log("Updating room snapshot");
             rooms = {};
+            let tmpRooms = {};
             snap.forEach(doc => {
-                rooms[doc.id] = new Room(doc);
+                tmpRooms[doc.id] = doc.data();
+                updateUsers(doc);
             });
+            rooms = {...tmpRooms}
             console.log("Finished updating room snapshot");
         });
 }
-updateRooms();
+
+function updateUsers(room) {
+    // Todo: check whether if I remove the parent listener whether that also removes the User listeners.
+    return room.ref.collection(USERS).onSnapshot(users => {
+        console.log(`Update user snapshot for room "${room.data().roomName}"`);
+        let tempMap = {};
+        users.forEach(user => tempMap[user.id] = user.data());
+        rooms[room.id][USERS] = tempMap;
+        console.log(`End updating user snapshot`);
+    });
+}
