@@ -1,5 +1,6 @@
 import firebase from "firebase/app";
 import {db} from './firebase';
+import {goto} from "@sapper/app";
 import {Room} from "./room";
 
 // Firestore Collections:
@@ -21,27 +22,21 @@ export let userId;
 //        roomName: name,
 // 		  keyX:valueX,
 // 	  	  keyY:valueY, ...
-//        users: not updated here, see separate 'users' map
+//        users: {
+//          userX: {
+// 	  	 		key1:value1,
+// 	  	 		...
+// 	  	 		},
+// 			userY: {},
+//			...
+// 	  	 	}
 // 	  	 },
 //  roomId {fields, users[usrX{values}]}
 //  ...
 //  }
 export let rooms = {};
 
-// { roomId: [
-// 	  	 	userX: {
-// 	  	 		key1:value1,
-// 	  	 		...
-// 	  	 		},
-// 			userY: {},
-//			...
-// 	  	 	]
-// }
-export let users = {};
-
-
 // Todo s:
-//  * users.roomId
 //  * Need those tables:
 //   ** Rooms > Users > list of userNames
 //   ** Users' > heartbeats
@@ -57,9 +52,11 @@ export let users = {};
 //  * We need to have 2 user tables, because we need to separate the heartbeat update from the 'users shown in the table'
 //      (we don't want that to update too frequently, i.e. for every user who looks on the table every time any user's heartbeat gets refreshed!)
 //  * Rooms > Users subcollection vs. Rooms.users[] array: what is better?
-//      * Probably subcollection, because that can be updated independently from the rooms!
+//      * Probably subcollection, it can actually be updated independently from the rooms.
 //  * rooms.users vs. separate rooms & users:
-//      aehm... ? //
+//      aehm... ? Might be easier to access rooms.users than a separate collection? Possibly?
+//  * users.roomId
+
 
 export function createRoom(roomName, userName, capacity= capacity) {
     console.log("Scheduling " + roomName);
@@ -76,7 +73,7 @@ export function enterRoom(roomID, userName) {
     let roomName = rooms[roomId].roomName
     console.log(`Joining room ${roomName} with id ${roomId}`);
     createAndJoinAPI(roomName, roomId, userName);
-    let usersInRoom = Object.values(users).filter(value => value.roomId === roomId).length;
+    let usersInRoom = Object.values(rooms[roomId]).length;
     console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
     addUser(userName, usersInRoom === 0);
     // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
@@ -100,15 +97,16 @@ function createAndJoinAPI(roomName, roomId, userName) {
     });
     jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
     // jitsiAPI.addListener('participantLeft', participantLeavingListener())
-    history.pushState(null, null, `?roomName=${roomName}&roomId=${roomId}`);
+    // Not necessary any more if we're using a separate svelte page for this:
+    // history.pushState(null, null, `?roomName=${roomName}&roomId=${roomId}`);
 }
 
 function participantLeft() {
     removeUser();
     jitsiAPI.dispose();
     jitsiAPI = null;
-    document.getElementById("meet").innerHTML = "";
-    history.pushState(null, null, null);
+    // document.getElementById("meet").innerHTML = "";
+    // history.pushState(null, null, null);
 }
 
 // Called when going back in the browser
@@ -117,7 +115,9 @@ window.onpopstate = function (event) {
     console.log("Document location: " + document.location);
     console.log("Search: " + document.location.search);
     if (!document.location.search) {
+        // if the user navigates back to a page that doesn't have any parameters then make sure that user's also leaving the conversation properly.
         participantLeft();
+        // Todo: optimally if there are other parameters those should be parsed and the user should join another room. Maybe it's doing that already though?
     }
 }
 
@@ -125,6 +125,7 @@ function participantLeavingListener(userName) {
     return () => {
         console.log("videoConferenceLeft fired for user " + userName);
         participantLeft();
+        goto('index.svelte');   // Todo: check this is correct.
     };
 }
 
@@ -149,7 +150,7 @@ export function deleteRoom(roomId, roomName) {
 }
 
 /**
- * Adds the current user (client) to the room, can never be a different user.
+ * Adds the current user (client) to the room
  * @param userName name of the user to add
  * @param isAdmin give this user 'admin rights' if true.
  */
@@ -158,8 +159,7 @@ function addUser(userName, isAdmin = false) {
     db.collection(`${ROOMS}/${roomId}/${USERS}`).add(
         {
             userName: userName,
-            isAdmin: isAdmin,
-            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            isAdmin: isAdmin
         })
         .then(userRef => {
             userId = userRef.id;
@@ -172,18 +172,40 @@ function addUser(userName, isAdmin = false) {
 /**
  * Remove the current user (or possibly another user) from a room
  * @param userToRemove defaults to current user
+ * @param roomToRemoveFrom defaults to current room
  */
 function removeUser(userToRemove = userId, roomToRemoveFrom = roomId) {
     console.log("Removing user: " + userToRemove);
     db.doc(`${ROOMS}/${roomToRemoveFrom}/${USERS}/${userToRemove}`)
         .delete()
-        .then(() => removeEmptyRooms());    // Todo: should this only be called after checking for #users on the client side?
+        .then(() => {
+            let users = rooms[roomToRemoveFrom].users;
+            let userIds = Object.keys(users);
+            if ((userIds.length === 1 && userIds[userToRemove]) || userIds.length === 0) {
+                removeEmptyRooms();
+            }
+        });
 }
 
 export function updateRoomProps(props) {
     db.doc(`${ROOMS}/${roomId}`)
         .update(props)
-        .then(() => removeEmptyRooms());
+        .then(() => {
+            let users = rooms[roomId].users;
+            let userIds = Object.keys(users);
+            if ((userIds.length === 1 && userIds[userId]) || userIds.length === 0) {
+                removeEmptyRooms();
+            }
+        });
+}
+
+export function loadUsernameFromCookie() {
+    let cookies = decodeURIComponent(document.cookie);
+    // Todo: if we're ever going to use more cookies than one we'll also need to split by ; or do something else more intelligent
+    cookies = cookies.split("=");
+    if (cookies[0] === USERNAME) {
+        return cookies[1];
+    }
 }
 
 function updateHeartbeat() {
@@ -195,64 +217,28 @@ function updateHeartbeat() {
         db.doc(`${USER_HEARTBEATS}/${userId}`).update({
             lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
         }).catch(() => {
-            let user = users[userId];
-            if (user) {
-                if (user.roomName)
+            // The user might have been deleted due to lost connection but has come back. Re-insert the user into the db.
+            let room = rooms[roomId];
+            if (room) {
+                let user = room.users[userId];
+                if (!user) {
+                    // ah damn. we don't have the username here, and I don't know how to / am too lazy to pass it in.
+                    // grab it from the cookie, it must have been set when the name was last changed. (Can't get it from the dom element because we're likely not on the index any more)
+                    let userName = loadUsernameFromCookie();
+                    if (!userName) {
+                        userName = "Guest";
+                    }
+                    db.doc(`${ROOMS}/${roomId}/${USERS}/${userId}`).set({
+                        userName: userName,
+                        isAdmin: false  // you blink you loose. Todo.
+                    })
+                }
             }
-            db.collection(`${USER_HEARTBEATS}`).doc(userId).set({
+            db.doc(`${USER_HEARTBEATS}/${userId}`).set({
                 lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
             })
         });
     }
-}
-
-// Todo: This should get called whenever ... a snapshot is updated? Should it? Or only when the client knows there should be an empty room?
-export function removeEmptyRooms() {
-    // this is mainly needed to remove those rooms that are empty (if they're not 'persistent').
-    // We can't reliably call something when a user exits, because they might
-    // close the browser, internet connection might get interrupted, ...
-
-    // First, update the current conversation if one is ongoing:
-    console.log("Remove expired users and then empty rooms...");
-    db.collection(ROOMS).get()
-        .then(rooms => {
-            if (rooms.empty) {
-                console.log("Nothing in database");
-            } else {
-                console.log(`${rooms.size} in database, checking expiry...`);
-                rooms.forEach(room => {
-                    let roomData = room.data();
-                    // Object.entries(data).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-                    room.ref.collection(USERS).get().then(users => {
-                        let now = Date.now() / 1000;
-                        let numberDeleted = 0;
-                        users.forEach(user => {
-                            let userData = user.data();
-                            console.log("Type of userData: " + typeof userData);
-                            // console.log("Keys and values for " + userData.userName);
-                            // Object.entries(userData).forEach(entry => console.log(`${entry[0]}: ${entry[1]}`));
-                            if (userData.lastUpdate) {  // this is sometimes null, I suspect because it is accessed as it is being updated?
-                                let secondsSinceLastUpdate = now - userData.lastUpdate.seconds;
-                                console.log(`Seconds since user ${userData.userName} was last updated: ${secondsSinceLastUpdate}`);
-                                if (secondsSinceLastUpdate > 60) {
-                                    console.log("Deleting " + userData.userName);
-                                    user.ref.delete();
-                                    numberDeleted++;
-                                }
-                            }
-                        });
-                        if (!roomData.persisting
-                            && now - roomData.createdDate.seconds > 10
-                            && (users.empty || users.size - numberDeleted <= 0))
-                        {
-                            // delete the parent room. Yes, that's possible with firestore, it doesn't need to be empty or anything.
-                            console.log("Deleting room " + roomData.roomName);
-                            room.ref.delete();
-                        }
-                    });
-                });
-            }
-        });
 }
 
 // This function attaches a listener to the collection which will keep the variable updated whenever there's a change in the database.

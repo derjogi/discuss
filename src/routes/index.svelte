@@ -3,6 +3,7 @@
 	import {stores} from '@sapper/app';
 	import Header from "../components/Header.svelte";
 	import JitsiGroup from "../components/JitsiGroup.svelte";
+	import {loadUsernameFromCookie} from "../jitsi";
 
 	const {preloading, page, session} = stores();
 
@@ -10,15 +11,7 @@
 	const initName = " ... you?";
 	const USERNAME = "userName";
 
-	function loadUsernameFromCookie() {
-		let cookies = decodeURIComponent(document.cookie);
-		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
-		cookies = cookies.split("=");
-		if (cookies[0] === USERNAME) {
-			userName = cookies[1];
-		}
-	}
-	loadUsernameFromCookie();
+	userName = loadUsernameFromCookie();
 
 	// If a user enters a direct link to a room the user should go there directly:
 	function loadRoomFromUrl() {
