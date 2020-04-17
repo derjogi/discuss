@@ -4,7 +4,7 @@
 	import {stores} from '@sapper/app';
 	import Header from "../components/Header.svelte";
 	import JitsiGroup from "../components/JitsiGroup.svelte";
-	import {loadUsernameFromCookie, rooms, setUserName} from "../jitsi";
+	import {loadUsernameFromCookie, rooms, setUserName, updateRooms} from "../jitsi";
 
 	const {preloading, page, session} = stores();
 
@@ -53,6 +53,8 @@
 	// updates the userName in jitsi.js whenever it gets updated. Only so that we can access it in submodules.
 	// I found that way easier than to use stores, not sure yet whether there's a downside.
 	$: setUserName(userName);
+
+	updateRooms();
 </script>
 
 <!-- Optimally we'd have this in a separate <Header> component. But it's not trivial because we're setting the userName in it and there's some cross-action going on with other  -->
@@ -79,7 +81,7 @@
 	{/if}
 
 	{#if userName.length > 0 && userName !== initName}
-		<JitsiGroup userName={userName}/>
+		<JitsiGroup userName={userName} rooms={rooms}/>
 	{/if}
 
 		<!-- This should stay at the bottom of the page, it's not visible but still takes space / pushes other elements down. -->

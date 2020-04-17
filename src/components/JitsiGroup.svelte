@@ -4,16 +4,14 @@ export async function preload(page, session) {
 </script>
 
 <script>
-    import {createRoom, deleteRoom, updateRooms, rooms} from "../jitsi";
+    import {createRoom, deleteRoom, updateRooms} from "../jitsi";
 
     export let userName;    // Passed in from parent component
-    updateRooms();
+    export let rooms;
 
     let newRoomName = "";
     let roomNameIsValid;
     $: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
-
-    $: rooms
 
 </script>
 
