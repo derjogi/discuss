@@ -1,9 +1,14 @@
 import firebase from "firebase/app";
 import {db} from './firebase';
+import {Room} from "./room";
 
 // Firestore Collections:
+// Main collection, contains rooms and users as subcollection
 export const ROOMS = "rooms";
+// a subcollection in each individual room containing the users, but NOT their heartbeats!
 export const USERS = "users";
+export const USER_HEARTBEATS = "user_heartbeats"
+
 
 const second = 1000;
 let capacity = 6;
@@ -12,9 +17,6 @@ let jitsiAPI;
 let roomId;
 export let userId;
 
-// Init stuff that gets all the groups and users. Will have to see how good this scales and might have sub-collections when things grow.
-// The actual method populating this is at the very end of this js file.
-export let rooms = {};
 // {roomId: {
 //        roomName: name,
 // 		  keyX:valueX,
@@ -24,8 +26,8 @@ export let rooms = {};
 //  roomId {fields, users[usrX{values}]}
 //  ...
 //  }
+export let rooms = {};
 
-export let users = {};
 // { roomId: [
 // 	  	 	userX: {
 // 	  	 		key1:value1,
@@ -35,24 +37,49 @@ export let users = {};
 //			...
 // 	  	 	]
 // }
+export let users = {};
+
+
+// Todo s:
+//  * users.roomId
+//  * Need those tables:
+//   ** Rooms > Users > list of userNames
+//   ** Users' > heartbeats
+//    --> from JitsiGroup we only listen to changes in Rooms & Rooms>Users
+//    --> from Heartbeat we update Users'
+//    --> When a user joins or leaves, the user should be added to both,
+//    --> A cloudFunction should check Users' (every... minute?) and if it finds one that's expired update Rooms>Users
+//        so that only then (and when users join/actively leave) the listener in JitsiGroup will actually fire & update
+//  * If a user looses connection temporarily or the db is temporarily not available, and users have an old heartbeat but then resume...
+//   ** not a problem if they resume before the cloud function runs
+//   **  IS a problem if the cloud function runs and removes that user.
+//      --> If the heartbeater can detect that (e.g. a failure), then it should insert the user new into Users' & into Rooms>Users
+//  * We need to have 2 user tables, because we need to separate the heartbeat update from the 'users shown in the table'
+//      (we don't want that to update too frequently, i.e. for every user who looks on the table every time any user's heartbeat gets refreshed!)
+//  * Rooms > Users subcollection vs. Rooms.users[] array: what is better?
+//      * Probably subcollection, because that can be updated independently from the rooms!
+//  * rooms.users vs. separate rooms & users:
+//      aehm... ? //
 
 export function createRoom(roomName, userName, capacity= capacity) {
     console.log("Scheduling " + roomName);
+    // Optimally we'd pass a userId instead of userName as createdBy, but we don't have an ID at this stage.
+    // Maybe the ID should be created on the client side, not on the server...
+    // But once we have some basic user management (with user login) that shouldn't be a problem anyway any more, so don't worry about it for now.
     addRoom(roomName, userName, true, capacity);
 }
 
+// Todo: can we join the room before adding it to the database? That would make it a smoother UX.
+//  problem is that we'd want to have some kind of random id in it (which we get for free from the db...)
 export function enterRoom(roomID, userName) {
     roomId = roomID;
-    getRoomNameFromId(roomId).then(roomName => {
-        console.log(`Joining room ${roomName} with id ${roomId}`);
-        createAndJoinAPI(roomName, roomId, userName);
-        db.collection(`${ROOMS}/${roomId}/${USERS}`).get()
-            .then(users => {
-                console.log(`Adding user ${userName} to a room with ${users.size} other users`);
-                addUser(userName, users.size === 0)
-            });
-        // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
-    });
+    let roomName = rooms[roomId].roomName
+    console.log(`Joining room ${roomName} with id ${roomId}`);
+    createAndJoinAPI(roomName, roomId, userName);
+    let usersInRoom = Object.values(users).filter(value => value.roomId === roomId).length;
+    console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
+    addUser(userName, usersInRoom === 0);
+    // Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
 }
 
 // Other methods:
@@ -69,7 +96,7 @@ function createAndJoinAPI(roomName, roomId, userName) {
         displayName: [ `${userName}`]
         // ,
         // toggleAudio: [],     // Toggles audio and video off when starting
-        // toggleVideo: []
+        // toggleVideo: []      // Not sure what is best; maybe could also be a (user?) setting.
     });
     jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
     // jitsiAPI.addListener('participantLeft', participantLeavingListener())
@@ -84,6 +111,7 @@ function participantLeft() {
     history.pushState(null, null, null);
 }
 
+// Called when going back in the browser
 window.onpopstate = function (event) {
     console.log(`OnPopState fired: ` + JSON.stringify(event.state));
     console.log("Document location: " + document.location);
@@ -111,7 +139,7 @@ async function addRoom(roomName, createdBy, persisting = false, capacity = 99) {
             createdDate: firebase.firestore.FieldValue.serverTimestamp(),
         });
     roomId = roomRef.id;
-    console.log(`Set roomId for ${roomName}: ${roomId}`);
+    console.log(`Added room ${roomName} (Id: ${roomId})`);
     return roomRef;
 }
 
@@ -121,7 +149,7 @@ export function deleteRoom(roomId, roomName) {
 }
 
 /**
- * Adds the current user to the room, can never be a different user.
+ * Adds the current user (client) to the room, can never be a different user.
  * @param userName name of the user to add
  * @param isAdmin give this user 'admin rights' if true.
  */
@@ -132,29 +160,24 @@ function addUser(userName, isAdmin = false) {
             userName: userName,
             isAdmin: isAdmin,
             lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-        }).then(userRef => {
-        userId = userRef.id;
-        console.log(`Set userId for ${userName}: ${userId}`);
-    }).catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
+        })
+        .then(userRef => {
+            userId = userRef.id;
+            console.log(`Set userId for ${userName}: ${userId}`);
+            setInterval(updateHeartbeat, 30 * second);
+        })
+        .catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
 }
 
 /**
- * Remove the current user or another user from this room
+ * Remove the current user (or possibly another user) from a room
  * @param userToRemove defaults to current user
  */
-function removeUser(userToRemove = userId) {
+function removeUser(userToRemove = userId, roomToRemoveFrom = roomId) {
     console.log("Removing user: " + userToRemove);
-    db.doc(`${ROOMS}/${roomId}/${USERS}/${userToRemove}`)
+    db.doc(`${ROOMS}/${roomToRemoveFrom}/${USERS}/${userToRemove}`)
         .delete()
-        .then(() => removeEmptyRooms());
-}
-
-async function getRoomNameFromId(roomId) {
-    return getDocProperty(`${ROOMS}/${roomId}`);
-}
-
-async function getDocProperty(docPath) {
-    return db.doc(docPath).get().then(doc => doc.data().roomName);
+        .then(() => removeEmptyRooms());    // Todo: should this only be called after checking for #users on the client side?
 }
 
 export function updateRoomProps(props) {
@@ -163,10 +186,29 @@ export function updateRoomProps(props) {
         .then(() => removeEmptyRooms());
 }
 
-// Todo: This should get called whenever ... a snapshot is updated? Should it?
-//  what happens if a user gets removed, does that count as updating a snapshot? Probably not...
+function updateHeartbeat() {
+    if (jitsiAPI != null) {
+        // Check whether the #participants still match with registered users.
+        let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
+        console.log(`Number of participants: ${numberOfParticipants}`);
+
+        db.doc(`${USER_HEARTBEATS}/${userId}`).update({
+            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(() => {
+            let user = users[userId];
+            if (user) {
+                if (user.roomName)
+            }
+            db.collection(`${USER_HEARTBEATS}`).doc(userId).set({
+                lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            })
+        });
+    }
+}
+
+// Todo: This should get called whenever ... a snapshot is updated? Should it? Or only when the client knows there should be an empty room?
 export function removeEmptyRooms() {
-    // this is mainly needed to remove those calls that are empty.
+    // this is mainly needed to remove those rooms that are empty (if they're not 'persistent').
     // We can't reliably call something when a user exits, because they might
     // close the browser, internet connection might get interrupted, ...
 
@@ -213,42 +255,17 @@ export function removeEmptyRooms() {
         });
 }
 
-function updateHeartbeat() {
-    if (jitsiAPI != null) {
-        // Check whether the #participants still match with registered users. Todo: remove once verified that this is actually working properly!
-        let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
-        console.log(`Number of participants: ${numberOfParticipants}`);
-
-        db.collection(`${ROOMS}/${roomId}/${USERS}`).get()
-            .then(users => {    // users = QuerySnapshot, different from DocReference or so
-                if (users.size !== numberOfParticipants) {
-                    console.warn(`Oh. got ${users.size} users, but ${numberOfParticipants} participants :-/`);
-                    users.forEach(user => console.log(user.data().userName));
-                }
-                users.docs.find(doc => doc.id === userId).ref.update({
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            });
-    }
-}
-setInterval(updateHeartbeat, 30 * second);
-
-
-
 // This function attaches a listener to the collection which will keep the variable updated whenever there's a change in the database.
-function update(whatToUpdate, collectionName) {
+function updateRooms() {
     // First up, fetch all ongoing conversations:
-    db.collection(collectionName)
+    db.collection(ROOMS)
         .onSnapshot(snap => {
-            let tempData = {};
+            console.log("Updating room snapshot");
+            rooms = {};
             snap.forEach(doc => {
-                let data = doc.data();
-                data["id"] = doc.id;
-                tempData[doc.id] = data;
+                rooms[doc.id] = new Room(doc);
             });
-            console.log("Finished updating snapshot");
-            whatToUpdate = tempData;
+            console.log("Finished updating room snapshot");
         });
 }
-update(rooms, ROOMS);
-update(users, USERS);
+updateRooms();
