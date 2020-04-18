@@ -36,8 +36,6 @@
 	let userId;
 	let default_capacity = 6;
 
-	let loading = false;
-
 	function loadUsernameFromCookie() {
 		let cookies = decodeURIComponent(document.cookie);
 		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
@@ -53,12 +51,19 @@
 		let room = hash.substr(1, hash.length);	// to remove the #
 		if (room) {
 			let roomNameAndId = room.split("_");
-			if (roomNameAndId.length != 2) {
+			if (roomNameAndId.length !== 2) {
 				alert(`The room in this address (${roomNameAndId}) isn't valid. It needs to have exactly one underscore '_'`)
+				history.pushState({title:'Home - Discuss'}, null, '/');
 				return;
 			}
-			loading = true;
-			console.log(`loading room from url with roomId ${roomId}`);
+			let elementById = document.getElementById('meet');
+			if (!elementById) {
+				elementById = document.createElement("div");
+				elementById.id = "meet";
+				elementById.className = "ongoing-meeting height-100"
+				document.body.appendChild(elementById);
+			}
+			console.log(`loading room from url with roomId ${roomNameAndId[1]}`);
 			if (!userName) {
 				userName = prompt("Please enter your name for this chat");
 				if (userName == null) {
@@ -75,7 +80,7 @@
 		}
 	}
 	loadUsernameFromCookie();
-	loadRoomFromUrl();
+	onMount(() => loadRoomFromUrl());
 
 	function updateName() {
 		customName = userName && userName !== initName;
@@ -122,16 +127,16 @@
 	// Todo: can we join the room before adding it to the database? That would make it a smoother UX.
 	//  problem is that we'd want to have some kind of random id in it (which we get for free from the db...)
 	function enterRoom(roomID, userName) {
-		roomId = roomID;
-		let roomName = rooms[roomId].roomName
-		enterRoomViaRoomName(roomName, roomId, userName);
-		currentRoom = rooms[roomId];
+		let roomName = rooms[roomID].roomName
+		enterRoomViaRoomName(roomName, roomID, userName);
+		currentRoom = rooms[roomID];
 	}
 
-	function enterRoomViaRoomName(roomName, roomId, userName) {
+	function enterRoomViaRoomName(roomName, roomID, userName) {
+		roomId = roomID;
 		console.log(`Joining room ${roomName} with id ${roomId}`);
 		createAndJoinAPI(roomName, roomId, userName);
-		if (rooms) {
+		if (rooms && rooms[roomId]) {
 			let usersInRoom = Object.keys(rooms[roomId][USERS]).length;
 			console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
 			isAdmin = usersInRoom === 0;
@@ -164,25 +169,35 @@
 		});
 		jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
 		// jitsiAPI.addListener('participantLeft', participantLeavingListener())
-		history.pushState(null, null, `#${roomWithId}`);
+		history.pushState({title:roomName}, roomName, `#${roomWithId}`);
+		document.title = roomName;
 	}
 
 	function participantLeavingListener(userName) {
 		return () => {
 			console.log("videoConferenceLeft fired for user " + userName);
 			participantLeft();
+			history.pushState({title:'Home - Discuss'}, null, '/');
+			document.title = 'Home - Discuss';
 		};
 	}
 
 	// Called when going back in the browser
-	window.onpopstate = function (event) {
+	window.onpopstate = event => {
 		console.log(`OnPopState fired: ` + JSON.stringify(event.state));
 		console.log("Document location: " + document.location);
-		console.log("Search: " + document.location.search);
-		if (!document.location.search) {
+		if (event.state && event.state.title) {
+			console.log("Setting title " + event.state.title);
+			document.title = event.state.title
+		}
+		if (!document.location.search && hasJoinedConversation) {
 			// if the user navigates back to a page that doesn't have any parameters then make sure that user's also leaving the conversation properly.
 			participantLeft();
+			document.location.hash = '';	/// can't do 'pushState' here, otherwise the user couldn't go forward again?
+			document.title = 'Home - Discuss';
 			// Todo: optimally if there are other parameters those should be parsed and the user should join another room. Maybe it's doing that already though?
+		} else {
+			loadRoomFromUrl();
 		}
 	}
 
@@ -194,7 +209,6 @@
 		document.getElementById("meet").innerHTML = "";
 		currentRoom = null;
 		hasJoinedConversation = false;
-		history.pushState(null, null, null);
 	}
 
 	async function addRoom(roomName, createdBy, persisting = false, capacity = default_capacity) {
@@ -338,13 +352,16 @@
 		});
 	}
 
-	/**
-	 * Done only once when the client loads the page.
-	 * I can't do scheduled cloud functions (at least not on firebase) without paying,
-	 * and if this is only once per new user that should be fine. Most users will anyway stay in their conversation,
-	 * and even if they're looking at the table it will get cleaned whenever someone else refreshes, so should be all fine.
-	 * Might be a few hundred calls, but better than doing it in an interval.
-	 **/
+	// If the page gets reloaded for some reason with the room hash in it, we might have to set currentRoom independently
+	$: if (!currentRoom && roomId && hasJoinedConversation && roomsInitialized && usersInitializedCounter === Object.keys(rooms).length) {
+		currentRoom = rooms[roomId]
+	}
+
+	// Removing dead people is done only once when the client loads the page.
+	// I can't do scheduled cloud functions (at least not on firebase) without paying,
+	// and if this is only once per new user that should be fine. Most users will anyway stay in their conversation,
+	// and even if they're looking at the table it will get cleaned whenever someone else refreshes, so should be all fine.
+	// Might be a few hundred calls, but better than doing it in an interval.
 	let hasRemovedTheDead = false;
 	$: if (!hasRemovedTheDead && roomsInitialized && usersInitializedCounter === Object.keys(rooms).length) {
 		// And we do this after rooms have been initialized so that we can look users up in the map.
@@ -407,15 +424,13 @@
 
 	let roomNameIsValid;
 	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+
+	let sortedRoomEntries;
+	$: sortedRoomEntries = Object.entries(rooms).sort((entryA, entryB) => {
+		return entryA[1].roomName.localeCompare(entryB[1].roomName);
+	});
 </script>
 
-
-{#if loading}
-	<div class="spinner-border" role="status">
-		<!--sr-only : ScreenReaders only, not visible otherwise.-->
-		<span class="sr-only">Loading ... </span>
-	</div>
-{:else}
 <!-- JoinedConversation -->
 {#if !hasJoinedConversation}
 	<div id="main-option-panel" transition:fade>
@@ -458,7 +473,7 @@
 					</div>
 				</div>
 
-				{#each Object.entries(rooms) as [id, room], i}
+				{#each sortedRoomEntries as [id, room], i}
 					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} {i % 2 === 0 ? 'odd' : 'even'} row justify-content-center">
 						<div class="col-md-3 col-4">
 							{room.roomName}
@@ -510,8 +525,7 @@
 	</div>
 <!-- End !JoinedConversation -->
 {/if}
-<!--Ends the if for main stuff, as 'else' to 'loading'-->
-{/if}
+
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
 <div id="ongoing-meeting">
 	<div id="meet" class={isAdmin?"height-90":hasJoinedConversation?"height-100":""}>
