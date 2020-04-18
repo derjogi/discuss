@@ -10,7 +10,6 @@
 	 *
 	 **/
 
-
 	import {onMount} from 'svelte';
 	import {fade} from 'svelte/transition';
 	import {db} from './firebase'
@@ -237,7 +236,7 @@
 				.then(userRef => {
 					userId = userRef.id;
 					console.log(`Set userId for ${userName}: ${userId}`);
-					db.doc(`${USER_HEARTBEATS}/${userId}`).update({
+					db.doc(`${USER_HEARTBEATS}/${userId}`).set({
 						lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
 					});
 					setInterval(updateHeartbeat, 30 * second);
@@ -354,23 +353,41 @@
 	}
 	function removeDeadPeople() {
 		console.log(`Checking for dead people.`);
-		let cutoff = new Date(Date.now() - (60 * second));
-		db.collection(USER_HEARTBEATS).where('lastUpdate', '<', cutoff).get()
+		db.collection(USER_HEARTBEATS).get()
 				.then(snap => {
-					console.log(`found ${snap.docs.length} dead bodies`)
-					snap.docs.forEach(doc => {
-						let roomId = doc.data().roomId;
-						let userName = doc.id;
-						let userData = getNestedObject(rooms, roomId, USERS, doc.id);
-						if (userData){
-							userName = userData.userName;
-							db.doc(`${ROOMS}/${roomId}/${USERS}/${doc.id}`).delete()
-									.then(() => console.log(`Deleted user ${userName}
-								from ${rooms[roomId].roomName} because his heart stopped since ${doc.data().lastUpdate.toDate()}.`));
-						}
-						doc.ref.delete();
-						console.log(`Deleted user ${userName} from heartbeats.`);
+					let cutoff = new Date(Date.now() - (60 * second));
+					let dead = true;
+					let deadsVsAlives = snap.docs.reduce((deadOrAlive, thatPerson) => {
+						let lastUpdate = thatPerson.data().lastUpdate.toDate();
+						console.log(typeof lastUpdate);
+						console.log(typeof cutoff);
+						let isDead = lastUpdate.getTime() < cutoff.getTime();
+						console.log(`Cuttof: ${cutoff}  - Last update of ${thatPerson.id} was at ${lastUpdate}. Is he dead? ${isDead} (it was ${cutoff.getTime() - lastUpdate.getTime()} too late).`)
+						if (!deadOrAlive[isDead]) deadOrAlive[isDead] = [];	// create empty array so that push succeeds...
+						deadOrAlive[isDead].push(thatPerson.id);
+						return deadOrAlive;
+					}, {true:[], false:[]});	// specify default so we don't fail if there are none.
+					let zombies = deadsVsAlives[dead];
+					let alives = deadsVsAlives[!dead];
+					console.log(`found ${zombies.length} zombies, and ${alives.length} active chatters.`);
+
+					let thePathOfTheZombies = [];
+					Object.entries(rooms).forEach((roomEntry) => {
+						let usersInRoom = Object.keys(roomEntry[1][USERS]);
+						console.log("Users in rooom:" + JSON.stringify(usersInRoom));
+						let theDead = usersInRoom.filter(person => zombies.includes(person) || !alives.includes(person));
+						theDead.forEach(zombie => thePathOfTheZombies.push(`${ROOMS}/${roomEntry[0]}/${USERS}/${zombie}`));
+					});
+
+					let batch = db.batch();
+					thePathOfTheZombies.forEach(path => {
+						batch.delete(db.doc(path));
+					});
+					zombies.forEach(zombie => {
+						return batch.delete(db.doc(`${USER_HEARTBEATS}/${zombie}`));
 					})
+
+					batch.commit().then(() => console.log("Yeah, we killed 'em all! Stupid zombies."));
 				});
 	}
 
