@@ -1,4 +1,16 @@
 <script>
+	/**
+	 * A Project to enable the management of various Jitsi video chat rooms so people can have discussions with each other
+	 * in a way that's very simple to manage.
+	 *
+	 *	Note: This has become a humongous App.svelte file.
+	 * I had the intention to split out the script parts of the code into a separate js file,
+	 * but because I need to have two-way-binding of many variables that has proven to be more complicated than what it's worth for a MVP.
+	 * Priority right now is getting everything to work, then I can take care of nice style later.
+	 *
+	 **/
+
+
 	import {onMount} from 'svelte';
 	import {fade} from 'svelte/transition';
 	import {db} from './firebase'
@@ -12,17 +24,72 @@
 	const USER_HEARTBEATS = "user_heartbeats"
 	const second = 1000;
 
+	let rooms = {}; // contains roomIds -> roomData, each roomData has a 'users' collection with userIds -> userData
+
 	let userName = "";
 	let customName = false;
 	let isAdmin = false;
-	let roomName = '';		// the room name a user has actually joined
 	let newRoomName = '';	// name when 'creating' a room, which the user might not actually join (e.g. scheduled room).
-
-	let rooms = {}; // contains roomIds -> roomData, each roomData has a 'users' collection with userIds -> userData
 	let jitsiAPI;
+	let currentRoom;
+	let hasJoinedConversation = false;	// Only needed because for some reason setting currentRoom = null and then checking if(currentRoom) doesn't always work :-/
 	let roomId;
 	let userId;
 	let default_capacity = 6;
+
+	let loading = false;
+
+	function loadUsernameFromCookie() {
+		let cookies = decodeURIComponent(document.cookie);
+		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
+		cookies = cookies.split("=");
+		if (cookies[0] === USERNAME) {
+			userName = cookies[1];
+		}
+	}
+
+	function loadRoomFromUrl() {
+		let hash = window.location.hash;
+		if (!hash) return;
+		let room = hash.substr(1, hash.length);	// to remove the #
+		if (room) {
+			let roomNameAndId = room.split("_");
+			if (roomNameAndId.length != 2) {
+				alert(`The room in this address (${roomNameAndId}) isn't valid. It needs to have exactly one underscore '_'`)
+				return;
+			}
+			loading = true;
+			console.log(`loading room from url with roomId ${roomId}`);
+			if (!userName) {
+				userName = prompt("Please enter your name for this chat");
+				if (userName == null) {
+					userName = "Anonymous";
+				}
+			}
+			if (Object.keys(rooms).length > 0) {
+				enterRoom(roomNameAndId[1], userName);
+			} else {
+				// get the roomName from the url:
+				enterRoomViaRoomName(roomNameAndId[0], roomNameAndId[1], userName);
+
+			}
+		}
+	}
+	loadUsernameFromCookie();
+	loadRoomFromUrl();
+
+	function updateName() {
+		customName = userName && userName !== initName;
+	}
+	updateName();
+
+	let nameWidth = 300;
+	$: if (userName.length > 0) {
+		let invisibleNameElement = document.getElementById("invisibleName");
+		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth + 20 : 300;
+		document.cookie = USERNAME + "=" + userName;
+	}
+
 
 	// Todo s:
 	//  ✅ * Need those tables:
@@ -58,11 +125,22 @@
 	function enterRoom(roomID, userName) {
 		roomId = roomID;
 		let roomName = rooms[roomId].roomName
+		enterRoomViaRoomName(roomName, roomId, userName);
+		currentRoom = rooms[roomId];
+	}
+
+	function enterRoomViaRoomName(roomName, roomId, userName) {
 		console.log(`Joining room ${roomName} with id ${roomId}`);
 		createAndJoinAPI(roomName, roomId, userName);
-		let usersInRoom = Object.values(rooms[roomId]).length;
-		console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
-		addUser(userName, usersInRoom === 0);
+		if (rooms) {
+			let usersInRoom = Object.keys(rooms[roomId][USERS]).length;
+			console.log(`Adding user ${userName} to a room with ${usersInRoom} other users`);
+			isAdmin = usersInRoom === 0;
+		} else {
+			isAdmin = false;
+		}
+		hasJoinedConversation = true;
+		addUser(userName, isAdmin);
 		// Admin if it's the first user, should be extended to use the user who created this room, or possibly a specified user...(?)
 		if (detachRoomUpdater) {
 			detachRoomAndUserUpdaters();  // this detaches the listener; we don't need it while we're actually in the room. (Only needed for the table)
@@ -87,14 +165,13 @@
 		});
 		jitsiAPI.addListener('videoConferenceLeft', participantLeavingListener(userName));
 		// jitsiAPI.addListener('participantLeft', participantLeavingListener())
-		history.pushState(null, null, `?roomName=${roomName}&roomId=${roomId}`);
+		history.pushState(null, null, `#${roomWithId}`);
 	}
 
 	function participantLeavingListener(userName) {
 		return () => {
 			console.log("videoConferenceLeft fired for user " + userName);
 			participantLeft();
-			history.pushState(null, null, null, )
 		};
 	}
 
@@ -116,6 +193,8 @@
 		jitsiAPI.dispose();
 		jitsiAPI = null;
 		document.getElementById("meet").innerHTML = "";
+		currentRoom = null;
+		hasJoinedConversation = false;
 		history.pushState(null, null, null);
 	}
 
@@ -129,7 +208,6 @@
 					createdBy: createdBy,
 					createdDate: firebase.firestore.FieldValue.serverTimestamp(),
 				});
-		roomId = roomRef.id;
 		console.log(`Added room ${roomName} (Id: ${roomId})`);
 		return roomRef;
 	}
@@ -159,6 +237,9 @@
 				.then(userRef => {
 					userId = userRef.id;
 					console.log(`Set userId for ${userName}: ${userId}`);
+					db.doc(`${USER_HEARTBEATS}/${userId}`).update({
+						lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+					});
 					setInterval(updateHeartbeat, 30 * second);
 				})
 				.catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
@@ -190,22 +271,21 @@
 	}
 
 	function updateHeartbeat() {
-		if (jitsiAPI != null) {
+		if (jitsiAPI != null && roomId) {
 			// Check whether the #participants still match with registered users.
 			let numberOfParticipants = jitsiAPI.getNumberOfParticipants();
 			console.log(`Number of participants: ${numberOfParticipants}`);
 
 			db.doc(`${USER_HEARTBEATS}/${userId}`).update({
+				roomId: roomId,
 				lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-			}).catch(() => {
+			}).catch(error => {
+				console.log(`Oh, got an error setting a user heartbeat for ${userName}: ${error}`);
 				// The user might have been deleted due to lost connection but has come back. Re-insert the user into the db.
 				let room = rooms[roomId];
-				if (room) {
-					let user = room.users[userId];
+				if (room) {	// if the room doesn't even exist any more the user doesn't need to be in it either.
+					let user = room[USERS][userId];	// these different ways of writing are confusing. Does room.users[userId] resolve to room.userData ?
 					if (!user) {
-						// ah damn. we don't have the username here, and I don't know how to / am too lazy to pass it in.
-						// grab it from the cookie, it must have been set when the name was last changed. (Can't get it from the dom element because we're likely not on the index any more)
-						let userName = loadUsernameFromCookie();
 						if (!userName) {
 							userName = "Guest";
 						}
@@ -216,11 +296,15 @@
 					}
 				}
 				db.doc(`${USER_HEARTBEATS}/${userId}`).set({
+					roomId: roomId,
 					lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
 				})
 			});
 		}
 	}
+
+	let roomsInitialized = false;
+	let usersInitializedCounter = 0;
 
 	function updateRooms() {
 		return db.collection(ROOMS)
@@ -235,6 +319,7 @@
 					});
 					rooms = {...tempRooms};
 					console.log(`Finished updating rooms snapshot for rooms: ${JSON.stringify(rooms)}`);
+					roomsInitialized = true;
 				});
 	}
 	let detachRoomUpdater = updateRooms();
@@ -248,67 +333,49 @@
 		return room.ref.collection(USERS).onSnapshot(users => {
 			let tempMap = {};
 			users.forEach(user => tempMap[user.id] = user.data());
-			room[USERS] = tempMap;
-			console.log(`Updated user snapshot for room "${room.data().roomName}"`);
+			rooms[room.id][USERS] = tempMap;
+			console.log(`Updated user snapshot for room ${rooms[room.id].roomName}: ${JSON.stringify(tempMap)}`);
+			usersInitializedCounter++;
 		});
 	}
 
-	function loadUsernameFromCookie() {
-		let cookies = decodeURIComponent(document.cookie);
-		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
-		cookies = cookies.split("=");
-		if (cookies[0] === USERNAME) {
-			userName = cookies[1];
-		}
+	/**
+	 * Done only once when the client loads the page.
+	 * I can't do scheduled cloud functions (at least not on firebase) without paying,
+	 * and if this is only once per new user that should be fine. Most users will anyway stay in their conversation,
+	 * and even if they're looking at the table it will get cleaned whenever someone else refreshes, so should be all fine.
+	 * Might be a few hundred calls, but better than doing it in an interval.
+	 **/
+	let hasRemovedTheDead = false;
+	$: if (!hasRemovedTheDead && roomsInitialized && usersInitializedCounter === Object.keys(rooms).length) {
+		// And we do this after rooms have been initialized so that we can look users up in the map.
+		removeDeadPeople();
+		hasRemovedTheDead = true;
+	}
+	function removeDeadPeople() {
+		console.log(`Checking for dead people.`);
+		let cutoff = new Date(Date.now() - (60 * second));
+		db.collection(USER_HEARTBEATS).where('lastUpdate', '<', cutoff).get()
+				.then(snap => {
+					console.log(`found ${snap.docs.length} dead bodies`)
+					snap.docs.forEach(doc => {
+						let roomId = doc.data().roomId;
+						let userName = doc.id;
+						let userData = getNestedObject(rooms, roomId, USERS, doc.id);
+						if (userData){
+							userName = userData.userName;
+							db.doc(`${ROOMS}/${roomId}/${USERS}/${doc.id}`).delete()
+									.then(() => console.log(`Deleted user ${userName}
+								from ${rooms[roomId].roomName} because his heart stopped since ${doc.data().lastUpdate.toDate()}.`));
+						}
+						doc.ref.delete();
+						console.log(`Deleted user ${userName} from heartbeats.`);
+					})
+				});
 	}
 
-	function loadRoomFromUrl() {
-		let query = window.location.search;
-		let urlSearchParams = new URLSearchParams(query);
-		let roomId = urlSearchParams.get('roomId');
-		if (roomId) {
-			if (!userName) {
-				userName = prompt("Please enter your name for this chat");
-				if (userName == null) {
-					userName = "Anonymous";
-				}
-			}
-			enterRoom(roomId, userName);
-		}
-	}
-	loadUsernameFromCookie();
-	loadRoomFromUrl();
-
-	let hasJoinedConversation;
-	let currentRoom;
-	$: {
-		let userInAnyRoom = false;
-		let currentRoomOrNull = null;
-		Object.values(rooms).forEach(room => {
-			let usersData = Object.values(room[USERS]);
-			if (usersData.some(userData => {
-				console.log(`Checking ${userData.userName}`);
-				return userData.id === userId;
-			})) {
-				console.log(`Found user ${userName} in ${room.roomName}`);
-				userInAnyRoom = true;
-				currentRoomOrNull = room;
-			}
-		});
-		hasJoinedConversation = userInAnyRoom;
-		currentRoom = currentRoomOrNull;
-	}
-
-	function updateName() {
-		customName = userName && userName !== initName;
-	}
-	updateName();
-
-	let nameWidth = 300;
-	$: if (userName.length > 0) {
-		let invisibleNameElement = document.getElementById("invisibleName");
-		nameWidth = invisibleNameElement ? invisibleNameElement.clientWidth + 20 : 300;
-		document.cookie = USERNAME + "=" + userName;
+	function getNestedObject(obj, ...args) {
+		return args.reduce((obj, level) => obj && obj[level], obj);
 	}
 
 	let roomLocked = false;
@@ -326,6 +393,12 @@
 </script>
 
 
+{#if loading}
+	<div class="spinner-border" role="status">
+		<!--sr-only : ScreenReaders only, not visible otherwise.-->
+		<span class="sr-only">Loading ... </span>
+	</div>
+{:else}
 <!-- JoinedConversation -->
 {#if !hasJoinedConversation}
 	<div id="main-option-panel" transition:fade>
@@ -420,7 +493,8 @@
 	</div>
 <!-- End !JoinedConversation -->
 {/if}
-
+<!--Ends the if for main stuff, as 'else' to 'loading'-->
+{/if}
 <!-- Can't be inside an if/else because it needs to be rendered already so the element can be found when the video is created. -->
 <div id="ongoing-meeting">
 	<div id="meet" class={isAdmin?"height-90":hasJoinedConversation?"height-100":""}>
