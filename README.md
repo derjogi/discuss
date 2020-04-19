@@ -1,4 +1,4 @@
-# DICUSSions
+# DISCUSSions
 
 This is an early attempt at managing multiple jitsi conversations/rooms.
 
