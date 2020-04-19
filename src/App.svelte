@@ -10,8 +10,48 @@
 	 *
 	 **/
 
+	// Todo:
+	// Bugs:
+	//  * I think there's either a bug in removeDeadPeople, or firestore has more or less frequently 2-minute-unavailability.
+	//    Every now and then all people get removed, possibly because no-one can reach google and setting the heartbeat fails (so everyone's thought to be dead if someone calls that method)
+	//    --> increase timeout to 5 minutes instead of 2?
+	//  * There's a bug where people that join directly with the room-id in the link don't always show up in the table, not sure why.
+	//
+	// Features:
+	//  * Better security: At the moment the permissions on firestore are open, should be changed so that only authenticated users
+	//    (which can also include anonymous users) are able to write to specific groups
+	//  * Make it easier to create separate 'groups' (e.g. different collections (groups) for different organizations or topics)
+	//  ** Split up into components (e.g. JitsiGroup)
+	//  ** Make it so other websites can easily integrate this, e.g. church website with their own set of groups (and possibly login protected?)
+	//  ** Possibly Group navigation on this website
+	//  * Better 'admin' management
+	//  ... many many more things. Maybe.
+
+	// Done or discarded:
+	//  ✅ * Need those tables:
+	//  ✅ ** Rooms > Users > list of userNames
+	//  ✅ ** Users' > heartbeats
+	//  ✅  --> from JitsiGroup (not implemented, but that's the actual 'table', should come soon? There's one in the `Sapper` branch!)
+	//  ✅	    we only listen to changes in Rooms & Rooms>Users
+	//  ✅  --> from Heartbeat we update Users'
+	//  ✅  --> When a user joins or leaves, the user should be added to both,
+	//  ❌  --> A cloudFunction should check Users' (every... minute?) and if it finds one that's expired update Rooms>Users
+	//  ❌      so that only then (and when users join/actively leave) the listener in JitsiGroup will actually fire & update
+	//  ❌ |--> not doing with external cloud function because that costs (3 invokations are free per day, but we'd need... many.)
+	//  ✅ |    instead, we're calling a cleanup (`removeDeadPeople`) once when the user opens the main page and everything's initializing (and e.g. on refresh). That should hopefully be enough.
+	//  ✅ * If a user looses connection temporarily or the db is temporarily not available, and users have an old heartbeat but then resume...
+	//  ✅ ** not a problem if they resume before the cloud function runs
+	//  ✅ **  IS a problem if the cloud function runs and removes that user.
+	//  ✅    --> If the heartbeater can detect that (e.g. a failure), then it should insert the user new into Users' & into Rooms>Users
+	//  ✅ * We need to have 2 user tables, because we need to separate the heartbeat update from the 'users shown in the table'
+	//  ✅    (we don't want that to update too frequently, i.e. for every user who looks on the table every time any user's heartbeat gets refreshed!)
+	//  ✅ * Rooms > Users subcollection vs. Rooms.users[] array: what is better?
+	//  ✅    * Probably subcollection, it can actually be updated independently from the rooms.
+	//  ✅ * rooms.users vs. separate rooms & users:
+	//  ✅    aehm... ? Might be easier to access rooms.users than a separate collection? Possibly?
+
 	import {onMount} from 'svelte';
-	import {fade} from 'svelte/transition';
+	import {fade} from 'svelte/transition';	// It is used! (but not recognized because it's used in the html parts?)
 	import {db} from './firebase'
 	import firebase from "firebase/app";	// to update timestamps
 
@@ -21,9 +61,10 @@
 	const ROOMS = "rooms";
 	const USERS = "users";
 	const USER_HEARTBEATS = "user_heartbeats"
+
 	const second = 1000;
 
-	let rooms = {}; // contains roomIds -> roomData, each roomData has a 'users' collection with userIds -> userData
+	let rooms = {}; // contains roomIds -> roomData, each roomData has a 'users' collection with userIds -> userData that get updated independently
 
 	let userName = "";
 	let customName = false;
@@ -38,7 +79,7 @@
 
 	function loadUsernameFromCookie() {
 		let cookies = decodeURIComponent(document.cookie);
-		// Todo: if we're ever going to use more cookies than one we'll also need to split by ;
+		// Todo: if we're ever going to use more cookies than one we'll also need to split by ; or do some other magic
 		cookies = cookies.split("=");
 		if (cookies[0] === USERNAME) {
 			userName = cookies[1];
@@ -94,28 +135,6 @@
 		document.cookie = USERNAME + "=" + userName;
 	}
 
-
-	// Todo s:
-	//  ✅ * Need those tables:
-	//  ✅ ** Rooms > Users > list of userNames
-	//  ✅ ** Users' > heartbeats
-	//    --> from JitsiGroup we only listen to changes in Rooms & Rooms>Users
-	//  ✅  --> from Heartbeat we update Users'
-	//  ✅  --> When a user joins or leaves, the user should be added to both,
-	//    --> A cloudFunction should check Users' (every... minute?) and if it finds one that's expired update Rooms>Users
-	//        so that only then (and when users join/actively leave) the listener in JitsiGroup will actually fire & update
-	//  ✅* If a user looses connection temporarily or the db is temporarily not available, and users have an old heartbeat but then resume...
-	//  ✅ ** not a problem if they resume before the cloud function runs
-	//  ✅ **  IS a problem if the cloud function runs and removes that user.
-	//  ✅    --> If the heartbeater can detect that (e.g. a failure), then it should insert the user new into Users' & into Rooms>Users
-	//  ✅ * We need to have 2 user tables, because we need to separate the heartbeat update from the 'users shown in the table'
-	//  ✅    (we don't want that to update too frequently, i.e. for every user who looks on the table every time any user's heartbeat gets refreshed!)
-	//  ✅ * Rooms > Users subcollection vs. Rooms.users[] array: what is better?
-	//  ✅    * Probably subcollection, it can actually be updated independently from the rooms.
-	//  ✅ * rooms.users vs. separate rooms & users:
-	//  ✅    aehm... ? Might be easier to access rooms.users than a separate collection? Possibly?
-
-
 	function createRoom(roomName, userName, capacity= default_capacity) {
 		console.log("Scheduling " + roomName);
 		// Optimally we'd pass a userId instead of userName as createdBy, but we don't have an ID at this stage.
@@ -124,8 +143,6 @@
 		addRoom(roomName, userName, true, capacity);
 	}
 
-	// Todo: can we join the room before adding it to the database? That would make it a smoother UX.
-	//  problem is that we'd want to have some kind of random id in it (which we get for free from the db...)
 	function enterRoom(roomID, userName) {
 		let roomName = rooms[roomID].roomName
 		enterRoomViaRoomName(roomName, roomID, userName);
