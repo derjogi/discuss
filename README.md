@@ -15,24 +15,13 @@ Also, feel free to contribute & improve, or fork your own.
 
 # svelte app
 
-This project is using template for [Svelte](https://svelte.dev) apps. It lives at https://github.com/sveltejs/template.
-
-To create a new project based on this template using [degit](https://github.com/Rich-Harris/degit):
-
-```bash
-npx degit sveltejs/template svelte-app
-cd svelte-app
-```
-
-*Note that you will need to have [Node.js](https://nodejs.org) installed.*
-
-
 ## Get started
 
-Install the dependencies...
+1. clone this project or create a fork (and clone that) onto your disc
+2. Install the dependencies...
 
 ```bash
-cd svelte-app
+cd path/to/project
 npm install
 ```
 
