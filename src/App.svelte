@@ -270,7 +270,9 @@
 					db.doc(`${USER_HEARTBEATS}/${userId}`).set({
 						lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
 					});
-					setInterval(updateHeartbeat, 30 * second);
+					setInterval(updateHeartbeat, 99 * second);
+					// We're removing people every 300s (5min), by updating the heartbeat every 100s users should be able to miss up to 2 intervals
+					// and still be alive. (Firestore seems to be frequently unavailable for 2 minutes or so)
 				})
 				.catch(err => console.log(`Failed to insert user ${userName}. Message was: \n ${err}`));
 	}
@@ -389,7 +391,7 @@
 		console.log(`Checking for dead people.`);
 		db.collection(USER_HEARTBEATS).get()
 				.then(snap => {
-					let cutoff = new Date(Date.now() - (60 * second));
+					let cutoff = new Date(Date.now() - (5 * 60 * second));
 					let dead = true;
 					let deadsVsAlives = snap.docs.reduce((deadOrAlive, thatPerson) => {
 						let lastUpdate = thatPerson.data().lastUpdate.toDate();
