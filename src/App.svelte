@@ -52,8 +52,9 @@
 
 	import {onMount} from 'svelte';
 	import {fade} from 'svelte/transition';	// It is used! (but not recognized because it's used in the html parts?)
-	import {db, userId} from './firebase'
+	import {db} from './firebase'
 	import firebase from "firebase/app";	// to update timestamps
+	import "firebase/auth";
 
 	const initName = " ... you?";
 	const USERNAME = "userName";
@@ -75,6 +76,22 @@
 	let hasJoinedConversation = false;	// Only needed because for some reason setting currentRoom = null and then checking if(currentRoom) doesn't always work :-/
 	let roomId;
 	let default_capacity = 6;
+	let userId;
+
+	firebase.auth()
+			.signInAnonymously()
+			.catch(function(error) {
+				console.warn(`Tried to sign in, but got ${error.code}: ${error.message}`);
+				// Todo: if a sign-in doesn't work, we should retry, right? But how? Or should we do something else?
+			});
+
+	firebase.auth().onAuthStateChanged(user => {
+		if (user.uid != null) {
+			userId = user.uid;
+			loadRoomFromUrl();
+		}
+	})
+
 
 	function loadUsernameFromCookie() {
 		let cookies = decodeURIComponent(document.cookie);
@@ -120,7 +137,6 @@
 		}
 	}
 	loadUsernameFromCookie();
-	onMount(() => loadRoomFromUrl());
 
 	function updateName() {
 		customName = userName && userName !== initName;
@@ -142,6 +158,12 @@
 		addRoom(roomName, userName, true, capacity);
 	}
 
+	function checkAndCreateRoom(event) {
+		if (roomNameIsValid && event.key === 'Enter') {
+			createRoom(newRoomName, userName);
+		}
+	}
+
 	function enterRoom(roomID, userName) {
 		let roomName = rooms[roomID].roomName
 		enterRoomViaRoomName(roomName, roomID, userName);
@@ -151,6 +173,14 @@
 	function enterRoomViaRoomName(roomName, roomID, userName) {
 		roomId = roomID;
 		console.log(`Joining room ${roomName} with id ${roomId}`);
+
+		// check whether the user is already in any other room:
+		let isInAnotherRoom = false;
+		Object.values(rooms).forEach(room => isInAnotherRoom |= Object.keys(room[USERS]).some(user => user === userId))
+		if (isInAnotherRoom) {
+			let enter = window.confirm("You seem to have already joined a conversation, maybe in a different tab. Are you sure you want enter?");
+			if (!enter) return;
+		}
 		createAndJoinAPI(roomName, roomId, userName);
 		if (rooms && rooms[roomId]) {
 			let usersInRoom = Object.keys(rooms[roomId][USERS]).length;
@@ -259,8 +289,8 @@
 	function addUser(userName, isAdmin = false) {
 		console.log(`Adding user: ${userName} to roomId ${roomId}`);
 		if (!userId) {
-			console.warn(`UserId ${userId} not set, the user isn't authenticated.`);
-			alert("Sorry, couldn't identify you. Please contact the admin of this site.");
+			console.warn(`UserId ${userId} not set, the user isn't authenticated. (Yet?)`);
+			alert("Sorry, couldn't identify you. Please try again.");
 		}
 		db.collection(`${ROOMS}/${roomId}/${USERS}`).doc(userId).set(
 				{
@@ -522,7 +552,8 @@
 			<input type="text" name=roomNameField
 				   bind:value={newRoomName}
 				   required
-				   pattern="^[^?&amp;:&quot;'%#]+$">
+				   pattern="^[^?&amp;:&quot;'%#]+$"
+				   on:keydown={checkAndCreateRoom}>
 
 			<button disabled={!roomNameIsValid} on:click={() => createRoom(newRoomName, userName)}>Create Room</button>
 			{#if newRoomName.length > 1 && !roomNameIsValid}
