@@ -12,14 +12,9 @@
 
 	// Todo:
 	// Bugs:
-	//  * I think there's either a bug in removeDeadPeople, or firestore has more or less frequently 2-minute-unavailability.
-	//    Every now and then all people get removed, possibly because no-one can reach google and setting the heartbeat fails (so everyone's thought to be dead if someone calls that method)
-	//    --> increase timeout to 5 minutes instead of 2?
 	//  * There's a bug where people that join directly with the room-id in the link don't always show up in the table, not sure why.
 	//
 	// Features:
-	//  * Better security: At the moment the permissions on firestore are open, should be changed so that only authenticated users
-	//    (which can also include anonymous users) are able to write to specific groups
 	//  * Make it easier to create separate 'groups' (e.g. different collections (groups) for different organizations or topics)
 	//  ** Split up into components (e.g. JitsiGroup)
 	//  ** Make it so other websites can easily integrate this, e.g. church website with their own set of groups (and possibly login protected?)
@@ -28,6 +23,11 @@
 	//  ... many many more things. Maybe.
 
 	// Done or discarded:
+	//  ✅ * Better security: At the moment the permissions on firestore are open, should be changed so that only authenticated users
+	//  ✅   (which can also include anonymous users) are able to write to specific groups
+	//  ✅ * I think there's either a bug in removeDeadPeople, or firestore has more or less frequently 2-minute-unavailability.
+	//  ✅   Every now and then all people get removed, possibly because no-one can reach google and setting the heartbeat fails (so everyone's thought to be dead if someone calls that method)
+	//  ✅   --> increase timeout to 5 minutes instead of 2?
 	//  ✅ * Need those tables:
 	//  ✅ ** Rooms > Users > list of userNames
 	//  ✅ ** Users' > heartbeats
@@ -52,7 +52,7 @@
 
 	import {onMount} from 'svelte';
 	import {fade} from 'svelte/transition';	// It is used! (but not recognized because it's used in the html parts?)
-	import {db} from './firebase'
+	import {db, userId} from './firebase'
 	import firebase from "firebase/app";	// to update timestamps
 
 	const initName = " ... you?";
@@ -74,7 +74,6 @@
 	let currentRoom;
 	let hasJoinedConversation = false;	// Only needed because for some reason setting currentRoom = null and then checking if(currentRoom) doesn't always work :-/
 	let roomId;
-	let userId;
 	let default_capacity = 6;
 
 	function loadUsernameFromCookie() {
@@ -259,14 +258,16 @@
 	 */
 	function addUser(userName, isAdmin = false) {
 		console.log(`Adding user: ${userName} to roomId ${roomId}`);
-		db.collection(`${ROOMS}/${roomId}/${USERS}`).add(
+		if (!userId) {
+			console.warn(`UserId ${userId} not set, the user isn't authenticated.`);
+			alert("Sorry, couldn't identify you. Please contact the admin of this site.");
+		}
+		db.collection(`${ROOMS}/${roomId}/${USERS}`).doc(userId).set(
 				{
 					userName: userName,
 					isAdmin: isAdmin
 				})
-				.then(userRef => {
-					userId = userRef.id;
-					console.log(`Set userId for ${userName}: ${userId}`);
+				.then(() => {
 					db.doc(`${USER_HEARTBEATS}/${userId}`).set({
 						lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
 					});
@@ -395,10 +396,7 @@
 					let dead = true;
 					let deadsVsAlives = snap.docs.reduce((deadOrAlive, thatPerson) => {
 						let lastUpdate = thatPerson.data().lastUpdate.toDate();
-						console.log(typeof lastUpdate);
-						console.log(typeof cutoff);
 						let isDead = lastUpdate.getTime() < cutoff.getTime();
-						console.log(`Cuttof: ${cutoff}  - Last update of ${thatPerson.id} was at ${lastUpdate}. Is he dead? ${isDead} (it was ${cutoff.getTime() - lastUpdate.getTime()} too late).`)
 						if (!deadOrAlive[isDead]) deadOrAlive[isDead] = [];	// create empty array so that push succeeds...
 						deadOrAlive[isDead].push(thatPerson.id);
 						return deadOrAlive;
@@ -410,7 +408,6 @@
 					let thePathOfTheZombies = [];
 					Object.entries(rooms).forEach((roomEntry) => {
 						let usersInRoom = Object.keys(roomEntry[1][USERS]);
-						console.log("Users in rooom:" + JSON.stringify(usersInRoom));
 						let theDead = usersInRoom.filter(person => zombies.includes(person) || !alives.includes(person));
 						theDead.forEach(zombie => thePathOfTheZombies.push(`${ROOMS}/${roomEntry[0]}/${USERS}/${zombie}`));
 					});
@@ -423,7 +420,7 @@
 						return batch.delete(db.doc(`${USER_HEARTBEATS}/${zombie}`));
 					})
 
-					batch.commit().then(() => console.log("Yeah, we killed 'em all! Stupid zombies."));
+					batch.commit().then(() => console.log("Yeah, we cleansed all rooms off zombies!"));
 				});
 	}
 
