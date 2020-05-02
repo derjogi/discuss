@@ -470,7 +470,7 @@
 	}
 
 	let roomNameIsValid;
-	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+	$: roomNameIsValid = RegExp("^[^?&:\"'%#/]+$").test(newRoomName);
 
 	let discussionRooms;
 	let prayerRooms;
