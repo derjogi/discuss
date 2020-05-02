@@ -469,7 +469,7 @@
 	}
 
 	let roomNameIsValid;
-	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
+	$: roomNameIsValid = RegExp("^[^?&:\"'%#/]+$").test(newRoomName);
 
 	let sortedRoomEntries;
 	$: sortedRoomEntries = Object.entries(rooms).sort((entryA, entryB) => {
