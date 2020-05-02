@@ -152,6 +152,7 @@
 
 	function createRoom(roomName, userName, capacity= default_capacity) {
 		console.log("Scheduling " + roomName);
+		if (roomName.match(/pray/i)) capacity = 2;
 		// Optimally we'd pass a userId instead of userName as createdBy, but we don't have an ID at this stage.
 		// Maybe the ID should be created on the client side, not on the server...
 		// But once we have some basic user management (with user login) that shouldn't be a problem anyway any more, so don't worry about it for now.
@@ -471,10 +472,24 @@
 	let roomNameIsValid;
 	$: roomNameIsValid = RegExp("^[^?&:\"'%#]+$").test(newRoomName);
 
-	let sortedRoomEntries;
-	$: sortedRoomEntries = Object.entries(rooms).sort((entryA, entryB) => {
-		return entryA[1].roomName.localeCompare(entryB[1].roomName);
-	});
+	let discussionRooms;
+	let prayerRooms;
+	// split into groups
+	$: {
+		if (Object.keys(rooms).length > 0) {
+			let prayerVsDiscussionRooms = Object.entries(rooms)
+					.sort((entryA, entryB) => entryA[1].roomName.localeCompare(entryB[1].roomName))
+					.reduce((groupedRooms, entry) => {
+						let isPrayerRoom = entry[1].roomName.toLowerCase().includes("pray");
+						if (!groupedRooms[isPrayerRoom]) groupedRooms[isPrayerRoom] = [];
+						groupedRooms[isPrayerRoom].push(entry)
+						return groupedRooms;
+					}, {true:[], false:[]});
+			prayerRooms = prayerVsDiscussionRooms[true];
+			discussionRooms = prayerVsDiscussionRooms[false];
+		}
+	}
+
 </script>
 
 <!-- JoinedConversation -->
@@ -500,48 +515,85 @@
 			</div>
 		{/if}
 		{#if userName.length > 0 && userName !== initName}
-			{#if Object.keys(rooms).length > 0}
-			<br/>
-			<br/>
-				<h3>You can join one of those:</h3>
-			<br/>
-			<br/>
-			<div class="container">
-				<div class="conversation-header-row even row justify-content-center">
-					<div class="col-md-3 col-4">
-						Room Name
-					</div>
-					<div class="col-md-3 col-4">
-						Participants (#)
-					</div>
-					<div class="col-md-2 col-4">
-						Actions
-					</div>
+			{#if prayerRooms && prayerRooms.length > 0}
+				<div class="rooms-table">
+					<h3>Prayer rooms (1-on-1):</h3>
 				</div>
 
-				{#each sortedRoomEntries as [id, room], i}
-					<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} {i % 2 === 0 ? 'odd' : 'even'} row justify-content-center">
+				<div class="container">
+					<div class="conversation-header-row even row justify-content-center">
 						<div class="col-md-3 col-4">
-							{room.roomName}
+							Room Name
 						</div>
 						<div class="col-md-3 col-4">
-							{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({Object.keys(room.users).length})
+							Participants (#)
 						</div>
-						<div class="col-md-1 col-2">
-							<button class="btn-join" on:click={() => enterRoom(id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
-						</div>
-						<div class="col-md-1 col-2">
-							{#if room.persisting && (Object.keys(room.users).length === 0)}
-								<i class="fa fa-close btn-remove" on:click={() => deleteRoom(id, room.roomName)}></i>
-							{/if}
+						<div class="col-md-2 col-4">
+							Actions
 						</div>
 					</div>
-				{/each}
-			</div>
-			<br/><br/>
-				<h3>Or start a new one: </h3>
+
+					{#each prayerRooms as [id, room], i}
+						<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} {i % 2 === 0 ? 'odd' : 'even'} row justify-content-center">
+							<div class="col-md-3 col-4">
+								{room.roomName}
+							</div>
+							<div class="col-md-3 col-4">
+								{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({Object.keys(room.users).length})
+							</div>
+							<div class="col-md-1 col-2">
+								<button class="btn-join" on:click={() => enterRoom(id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
+							</div>
+							<div class="col-md-1 col-2">
+								{#if room.persisting && (Object.keys(room.users).length === 0)}
+									<i class="fa fa-close btn-remove" on:click={() => deleteRoom(id, room.roomName)}></i>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			{#if discussionRooms && discussionRooms.length > 0}
+				<div class="rooms-table">
+					<h3>Discussion rooms:</h3>
+				</div>
+
+				<div class="container">
+					<div class="conversation-header-row even row justify-content-center">
+						<div class="col-md-3 col-4">
+							Room Name
+						</div>
+						<div class="col-md-3 col-4">
+							Participants (#)
+						</div>
+						<div class="col-md-2 col-4">
+							Actions
+						</div>
+					</div>
+
+					{#each discussionRooms as [id, room], i}
+						<div class="{Object.keys(room.users).length >= room.capacity ? 'convo-full' : ''} {i % 2 === 0 ? 'odd' : 'even'} row justify-content-center">
+							<div class="col-md-3 col-4">
+								{room.roomName}
+							</div>
+							<div class="col-md-3 col-4">
+								{Object.keys(room.users).map(user => room.users[user].userName).join(", ")} ({Object.keys(room.users).length})
+							</div>
+							<div class="col-md-1 col-2">
+								<button class="btn-join" on:click={() => enterRoom(id, userName)}>{Object.keys(room.users).length >= room.capacity ? 'FULL' : 'JOIN'}</button>
+							</div>
+							<div class="col-md-1 col-2">
+								{#if room.persisting && (Object.keys(room.users).length === 0)}
+									<i class="fa fa-close btn-remove" on:click={() => deleteRoom(id, room.roomName)}></i>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+				<br/><br/>
+				<h3>Not what you're looking for? Then start a new room: </h3>
 			{:else}
-			<br/>
+				<br/>
 				<h3>Oh. There aren't any existing conversations?</h3>
 				<br/>
 				<h3>Then why not go ahead and start one! </h3>
@@ -641,6 +693,10 @@
 
 	input[name=roomNameField]:invalid {
 		border: 2px solid #5996cd;
+	}
+
+	.rooms-table {
+		margin: 2em;
 	}
 
 	.conversation-header-row {
