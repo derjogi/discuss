@@ -1,5 +1,7 @@
 # DISCUSSions
 
+A place to enable frictionless townhall-style discussions with neighbours, or have a conversation with people from the other side of the world.
+
 This is an early attempt at managing multiple jitsi conversations/rooms.
 
 a first demo is online at https://discuss.now.sh/ . You can use that, but please don't spam it with thousands of calls as I'm on the free database tier and would like to stay there for a bit ;-)
