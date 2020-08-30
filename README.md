@@ -2,12 +2,14 @@
 
 A place to enable frictionless townhall-style discussions with neighbours, or have a conversation with people from the other side of the world.
 
-This is an early attempt at managing multiple jitsi conversations/rooms.
+It manages multiple jitsi conversations/rooms with the possibility of setting room names, seeing & limiting number of participants.
 
-a first demo is online at https://discuss.now.sh/ . You can use that, but please don't spam it with thousands of calls as I'm on the free database tier and would like to stay there for a bit ;-)
+This app is currently not deployed, although I could easily start one up if you want to see it working. 
+I had to take it down because the credentials to the database are exposed, be aware of that if you're forking this.
+The risk of being hacked was too great while on a free tier (static website host). 
 
-Also, feel free to contribute & improve, or fork your own. 
-(If you fork it you'll need to set up a firestore db and provide the credentials).
+Also, feel free to contribute & improve this code! 
+(If you fork it you'll need to set up a firestore db and provide your own credentials).
 
 ---
 
